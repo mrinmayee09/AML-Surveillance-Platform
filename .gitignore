@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# SECRETS — never commit these
+# ---------------------------------------------------------------------------
+# .env holds SECRET_KEY, which signs JWTs AND keys the order-integrity HMAC.
+# The .env.example templates ARE committed (they contain no real values).
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+!.env.example
+!**/.env.example
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Node / frontend
+# ---------------------------------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.log
+npm-debug.log*
+yarn-error.log*
+.eslintcache
+
+# ---------------------------------------------------------------------------
+# Database — regenerate with:  cd backend && python -m seed.seed
+# ---------------------------------------------------------------------------
+# aml.db is ~17 MB of generated synthetic data. Committing it would bloat the
+# repo on every reseed, and `seed.py` rebuilds it deterministically.
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+# SQLite write-ahead-log and shared-memory files are pure runtime scratch.
+database/*.db-shm
+database/*.db-wal
+database/*.db-journal
+
+# ---------------------------------------------------------------------------
+# Trained model artifacts — regenerate with the seed script
+# ---------------------------------------------------------------------------
+# proactive_rf.joblib is ~11 MB and is a version-pinned pickle, so it is safer
+# to retrain than to ship. The .meta.json sidecars are deliberately NOT ignored:
+# they are a few KB and carry the accuracy/F1/confusion-matrix figures, so the
+# Model Insights numbers stay documented in the repo without the binaries.
+*.joblib
+*.pkl
+*.pt
+*.pth
+*.onnx
+!*.meta.json
+
+# ---------------------------------------------------------------------------
+# Editor / OS / local tooling
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+.claude/

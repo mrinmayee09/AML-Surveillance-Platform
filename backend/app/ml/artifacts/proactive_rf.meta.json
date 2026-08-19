@@ -1,0 +1,91 @@
+{
+  "model_name": "proactive_rf",
+  "model_version": "1.0.0",
+  "feature_names": [
+    "amount_deviation_ratio",
+    "amount_log",
+    "txn_count_30d",
+    "frequency_ratio",
+    "velocity_per_hour",
+    "burst_score",
+    "unique_counterparties_30d",
+    "new_counterparties_30d",
+    "counterparty_growth_ratio",
+    "rapid_movement_score",
+    "structuring_score",
+    "round_amount_ratio",
+    "international_share",
+    "high_risk_geo_exposure",
+    "account_age_years",
+    "previous_alert_count",
+    "dormancy_reactivation",
+    "pep_flag"
+  ],
+  "feature_importances": {
+    "amount_deviation_ratio": 0.04638,
+    "amount_log": 0.05441,
+    "txn_count_30d": 0.01472,
+    "frequency_ratio": 0.18277,
+    "velocity_per_hour": 0.03935,
+    "burst_score": 0.09784,
+    "unique_counterparties_30d": 0.01002,
+    "new_counterparties_30d": 0.03969,
+    "counterparty_growth_ratio": 0.16105,
+    "rapid_movement_score": 0.12038,
+    "structuring_score": 0.08026,
+    "round_amount_ratio": 0.00969,
+    "international_share": 0.02145,
+    "high_risk_geo_exposure": 0.07482,
+    "account_age_years": 0.03472,
+    "previous_alert_count": 0.01132,
+    "dormancy_reactivation": 0.00069,
+    "pep_flag": 0.00045
+  },
+  "metrics": {
+    "accuracy": 0.9318,
+    "precision": 0.9335,
+    "recall": 0.8714,
+    "f1": 0.9014,
+    "roc_auc": 0.9157,
+    "support": 4500,
+    "confusion_matrix": [
+      [
+        2790,
+        100
+      ],
+      [
+        207,
+        1403
+      ]
+    ],
+    "labels": [
+      "Normal",
+      "Elevated risk"
+    ]
+  },
+  "hyperparameters": {
+    "n_estimators": 300,
+    "max_depth": 12,
+    "min_samples_leaf": 6,
+    "min_samples_split": 12,
+    "max_features": "sqrt",
+    "class_weight": "balanced_subsample",
+    "criterion": "gini",
+    "random_state": 20240817,
+    "n_jobs": -1
+  },
+  "training_rows": 13500,
+  "class_balance": {
+    "normal": 11559,
+    "elevated_risk": 6441
+  },
+  "trained_at": "2026-08-18T17:48:44.291427+00:00",
+  "training_data": "18,000 synthetic behavioural feature vectors sampled from eight customer archetypes (legitimate and laundering-typology), with 7% label noise. Labels are weak/synthetic - not confirmed SAR outcomes.",
+  "notes": "Fitted on synthetic archetype-conditional data with 7% label noise. Metrics measure recovery of a synthetic labelling function, not real-world laundering detection performance.",
+  "caveats": [
+    "Labels are synthetic archetype weak labels, not confirmed SAR/STR outcomes.",
+    "Two archetypes (SME_HIGH_VALUE_LEGIT, VOLATILE_LEGIT) are deliberate hard negatives so the model cannot separate classes on transaction size alone.",
+    "Reported metrics come from a stratified 25% held-out split of the same synthetic distribution, so they will not transfer to production data.",
+    "A risk score is a prioritisation signal for human review, never proof of criminal activity."
+  ]
+}

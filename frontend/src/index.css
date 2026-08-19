@@ -1,0 +1,193 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-950 text-slateish-200 font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'tnum';
+  }
+
+  /* Tabular figures everywhere money or counts appear, so columns align */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    @apply bg-info/30 text-white;
+  }
+
+  /* Restrained scrollbars - this is a dense data application */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a3a5c transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    @apply bg-ink-600 rounded-full;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-500;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-info/70 ring-offset-2 ring-offset-ink-950;
+  }
+}
+
+@layer components {
+  /* --- Surfaces ------------------------------------------------------ */
+  .surface {
+    @apply bg-ink-900 border border-ink-700/70 rounded-card shadow-card;
+  }
+  .surface-raised {
+    @apply bg-ink-850 border border-ink-700/70 rounded-card shadow-raised;
+  }
+  .surface-inset {
+    @apply bg-ink-950/60 border border-ink-700/50 rounded-lg;
+  }
+
+  /* --- Typography ---------------------------------------------------- */
+  .label-caps {
+    @apply text-2xs font-semibold uppercase tracking-[0.09em] text-slateish-400;
+  }
+  .metric-value {
+    @apply text-2xl font-semibold text-white tnum tracking-tight;
+  }
+  .mono-ref {
+    @apply font-mono text-xs text-slateish-300;
+  }
+
+  /* --- Buttons ------------------------------------------------------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5
+      text-sm font-medium transition-colors duration-100
+      disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap;
+  }
+  .btn-primary {
+    @apply btn bg-info text-white hover:bg-info/85;
+  }
+  .btn-secondary {
+    @apply btn bg-ink-750 text-slateish-200 border border-ink-600
+      hover:bg-ink-700 hover:text-white;
+  }
+  .btn-ghost {
+    @apply btn text-slateish-300 hover:bg-ink-800 hover:text-white;
+  }
+  .btn-danger {
+    @apply btn bg-risk-high/90 text-white hover:bg-risk-high;
+  }
+  .btn-sm {
+    @apply px-2 py-1 text-xs;
+  }
+
+  /* --- Form controls ------------------------------------------------- */
+  .input {
+    @apply w-full rounded-md bg-ink-950/70 border border-ink-700 px-3 py-1.5
+      text-sm text-slateish-100 placeholder:text-slateish-400/70
+      focus:border-info/70 focus:outline-none focus:ring-1 focus:ring-info/40
+      transition-colors;
+  }
+  .select {
+    @apply input pr-8 appearance-none cursor-pointer;
+  }
+
+  /* --- Tables -------------------------------------------------------- */
+  .table-base {
+    @apply w-full text-sm border-collapse;
+  }
+  .table-base thead th {
+    @apply sticky top-0 z-10 bg-ink-850/95 backdrop-blur px-3 py-2
+      text-left label-caps border-b border-ink-700 whitespace-nowrap;
+  }
+  .table-base tbody td {
+    @apply px-3 py-2 border-b border-ink-800/80 align-middle;
+  }
+  .table-base tbody tr {
+    @apply transition-colors;
+  }
+  .table-row-clickable {
+    @apply cursor-pointer hover:bg-ink-800/60;
+  }
+
+  /* --- Badges -------------------------------------------------------- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5
+      text-2xs font-semibold uppercase tracking-wide border whitespace-nowrap;
+  }
+
+  /* --- Scroll containers -------------------------------------------- */
+  /* Wide tables and diagrams scroll inside themselves; the page never
+     scrolls horizontally. */
+  .scroll-x {
+    @apply overflow-x-auto;
+  }
+}
+
+@layer utilities {
+  .skeleton {
+    @apply relative overflow-hidden bg-ink-800 rounded;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.045),
+      transparent
+    );
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* --- React Flow overrides: match the console, no neon ------------- */
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+.react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.react-flow__controls {
+  @apply rounded-md overflow-hidden border border-ink-700;
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  @apply bg-ink-850 border-b border-ink-700 text-slateish-300;
+  fill: currentColor;
+}
+.react-flow__controls-button:hover {
+  @apply bg-ink-750 text-white;
+}
+.react-flow__minimap {
+  @apply rounded-md border border-ink-700;
+}

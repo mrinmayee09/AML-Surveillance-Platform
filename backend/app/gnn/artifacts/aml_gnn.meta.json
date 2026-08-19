@@ -1,0 +1,223 @@
+{
+  "model_name": "aml_gnn",
+  "model_version": "1.0.0",
+  "architecture": "Directed value-weighted GraphSAGE encoder (3 layers, 64-dim) with node, edge and graph-readout heads - implemented directly in PyTorch",
+  "config": {
+    "node_dim": 16,
+    "edge_dim": 6,
+    "hidden": 64,
+    "layers": 3
+  },
+  "hyperparameters": {
+    "epochs": 26,
+    "learning_rate": 0.003,
+    "weight_decay": 0.0001,
+    "optimiser": "AdamW",
+    "scheduler": "CosineAnnealingLR",
+    "batch_graphs": 8,
+    "hidden_dim": 64,
+    "layers": 3,
+    "node_pos_weight": 3.274,
+    "edge_pos_weight": 4.981,
+    "loss": "BCEWithLogits (node + edge + graph readout)"
+  },
+  "metrics": {
+    "node_classification": {
+      "accuracy": 0.9773,
+      "precision": 0.9041,
+      "recall": 0.9991,
+      "f1": 0.9493,
+      "roc_auc": 0.9866,
+      "support": 5377,
+      "positives": 1142,
+      "confusion_matrix": [
+        [
+          4114,
+          121
+        ],
+        [
+          1,
+          1141
+        ]
+      ],
+      "labels": [
+        "Not in flagged structure",
+        "In flagged structure"
+      ]
+    },
+    "edge_scoring": {
+      "accuracy": 0.9996,
+      "precision": 0.9975,
+      "recall": 1.0,
+      "f1": 0.9987,
+      "roc_auc": 1.0,
+      "support": 7734,
+      "positives": 1189,
+      "confusion_matrix": [
+        [
+          6542,
+          3
+        ],
+        [
+          0,
+          1189
+        ]
+      ],
+      "labels": [
+        "Not in flagged structure",
+        "In flagged structure"
+      ]
+    },
+    "subgraph_detection": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "roc_auc": 1.0,
+      "support": 170,
+      "positives": 85,
+      "confusion_matrix": [
+        [
+          85,
+          0
+        ],
+        [
+          0,
+          85
+        ]
+      ],
+      "labels": [
+        "Not in flagged structure",
+        "In flagged structure"
+      ]
+    },
+    "held_out_graphs": 170,
+    "training_graphs": 678,
+    "loss_history": [
+      {
+        "epoch": 1,
+        "loss": 0.67725
+      },
+      {
+        "epoch": 2,
+        "loss": 0.25636
+      },
+      {
+        "epoch": 3,
+        "loss": 0.1705
+      },
+      {
+        "epoch": 4,
+        "loss": 0.15448
+      },
+      {
+        "epoch": 5,
+        "loss": 0.21689
+      },
+      {
+        "epoch": 6,
+        "loss": 0.13388
+      },
+      {
+        "epoch": 7,
+        "loss": 0.16431
+      },
+      {
+        "epoch": 8,
+        "loss": 0.1176
+      },
+      {
+        "epoch": 9,
+        "loss": 0.12315
+      },
+      {
+        "epoch": 10,
+        "loss": 0.11332
+      },
+      {
+        "epoch": 11,
+        "loss": 0.11294
+      },
+      {
+        "epoch": 12,
+        "loss": 0.11021
+      },
+      {
+        "epoch": 13,
+        "loss": 0.11026
+      },
+      {
+        "epoch": 14,
+        "loss": 0.10927
+      },
+      {
+        "epoch": 15,
+        "loss": 0.10763
+      },
+      {
+        "epoch": 16,
+        "loss": 0.1083
+      },
+      {
+        "epoch": 17,
+        "loss": 0.10901
+      },
+      {
+        "epoch": 18,
+        "loss": 0.1068
+      },
+      {
+        "epoch": 19,
+        "loss": 0.10616
+      },
+      {
+        "epoch": 20,
+        "loss": 0.10477
+      },
+      {
+        "epoch": 21,
+        "loss": 0.10569
+      },
+      {
+        "epoch": 22,
+        "loss": 0.10429
+      },
+      {
+        "epoch": 23,
+        "loss": 0.10538
+      },
+      {
+        "epoch": 24,
+        "loss": 0.1052
+      },
+      {
+        "epoch": 25,
+        "loss": 0.10446
+      },
+      {
+        "epoch": 26,
+        "loss": 0.10405
+      }
+    ]
+  },
+  "dataset_summary": {
+    "graphs": 848,
+    "nodes": 26520,
+    "edges": 38930,
+    "positive_nodes": 6207,
+    "positive_edges": 6508,
+    "positive_graphs": 450,
+    "node_positive_rate": 0.234,
+    "edge_positive_rate": 0.1672
+  },
+  "trained_at": "2026-08-18T17:52:56.303020+00:00",
+  "training_data": "900 synthetic transaction graphs (~26k nodes / ~42k edges) with injected laundering topologies and benign look-alike structures. Node, edge and graph labels are structural ground truth by construction - not confirmed laundering cases.",
+  "notes": "Genuinely trained by backpropagation on synthetic graphs whose laundering topologies are known by construction. Learns to recognise structural typologies, not criminality.",
+  "caveats": [
+    "Trained on synthetic graphs; labels are structural ground truth, not confirmed laundering cases.",
+    "Benign look-alike structures (flash-sale merchant collections, uniform contractor payout runs, same-day trade settlements) are included as hard negatives so the model cannot succeed by counting node degree alone. Every negative graph contains at least one such look-alike.",
+    "READ THE NODE METRIC, NOT THE OTHER TWO. Edge scoring and subgraph detection both saturate near 1.0, and that is an artefact of how the labels were constructed rather than evidence of exceptional capability: an edge is labelled positive exactly when both its endpoints belong to an injected structure, which the endpoint embeddings already encode; and the graph label is 'contains at least one injected typology', which reduces to an OR over node predictions. Node classification (~0.95 F1) is the only one of the three that is genuinely discriminative on this dataset.",
+    "Held-out metrics describe topology recognition on the same synthetic distribution and will not transfer directly to production data.",
+    "Outputs are model-generated risk indicators for human triage. They are not evidence and do not establish that any offence occurred."
+  ]
+}
