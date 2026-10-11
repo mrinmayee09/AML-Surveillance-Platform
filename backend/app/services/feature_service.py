@@ -19,7 +19,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.graph.builder import HIGH_RISK_COUNTRIES
+# Shared with the graph layer so structuring means the same thing in both
+from app.graph.features_v2 import (
+    PLATFORM_REPORTING_THRESHOLD as REPORTING_THRESHOLD,
+    STRUCTURING_BAND,
+)
 from app.ml.features import FeatureBundle
 from app.models import Account, Counterparty, Customer, Transaction
 
@@ -29,9 +35,6 @@ BASELINE_WINDOW_DAYS = 180
 NEW_BENEFICIARY_WINDOW_DAYS = 30
 BURST_WINDOW_MINUTES = 15
 RAPID_MOVEMENT_WINDOW_MINUTES = 30
-# Reporting threshold used for the structuring signal (demo configuration)
-REPORTING_THRESHOLD = 1_000_000.0
-STRUCTURING_BAND = (0.80, 0.999)  # fraction of the threshold counted as adjacent
 
 
 @dataclass
@@ -58,7 +61,7 @@ def load_activity(
     db: Session, customer: Customer, reference_time: Optional[datetime] = None
 ) -> CustomerActivity:
     """Fetch the transaction history behind a customer's behavioural profile."""
-    now = reference_time or datetime.utcnow()
+    now = reference_time or utcnow()
     account_ids = [a.id for a in customer.accounts]
     if not account_ids:
         return CustomerActivity([], [], [], [], [], now)

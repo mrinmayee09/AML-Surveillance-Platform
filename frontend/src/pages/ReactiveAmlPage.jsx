@@ -25,7 +25,12 @@ import {
 } from '../components/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import { useApi, useMutation } from '../hooks/useApi.js'
+import {
+  ALERTS_CHANGED_EVENT,
+  notifyAlertsChanged,
+  useApi,
+  useMutation,
+} from '../hooks/useApi.js'
 import { api } from '../services/api.js'
 import { formatRelative, humanise } from '../utils/format.js'
 
@@ -133,22 +138,36 @@ function PatternCard({ card }) {
 
 export default function ReactiveAmlPage() {
   const toast = useToast()
-  const { isAdmin } = useAuth()
+  const { can } = useAuth()
+  const canSweep = can('alerts:update')
   const [pattern, setPattern] = useState('')
   const { data, error, loading, reload } = useApi(
     (signal) => api.reactiveOverview({ limit: 60 }, signal),
     [],
+    { refetchOn: ALERTS_CHANGED_EVENT, refetchOnFocus: true },
   )
 
   const runSweep = useMutation(async () => {
-    const result = await api.runReactiveSweep({ limit: 40 })
+    const result = await api.runReactiveSweep()
+    // Sweeps are idempotent server-side: findings already on file refresh the
+    // existing alert instead of raising a duplicate, so 0 new is a normal outcome.
     toast.success(
-      `Sweep complete: ${result.alerts_created} alert(s) raised across ${result.customers_scanned} customer(s).`,
-      { title: 'Reactive monitoring' },
+      result.alerts_created > 0
+        ? `${result.alerts_created} new alert(s) raised. Findings already on file were refreshed, not duplicated.`
+        : 'No new findings. Patterns already on file were refreshed on their existing alerts.',
+      { title: 'Reactive monitoring sweep complete' },
     )
-    reload()
+    notifyAlertsChanged()
     return result
   })
+
+  function startSweep() {
+    runSweep.run().catch((err) => {
+      toast.error(err?.message ?? 'The monitoring sweep failed.', {
+        title: 'Reactive monitoring sweep failed',
+      })
+    })
+  }
 
   const patternOptions = useMemo(() => {
     const counts = data?.pattern_counts ?? {}
@@ -173,14 +192,16 @@ export default function ReactiveAmlPage() {
         title="Reactive AML Monitoring"
         subtitle="Analyses transactions AFTER they settle, looking for laundering typologies in the customer's recent behaviour. Each finding carries the measurements behind it."
       >
-        <Button
-          variant="secondary"
-          icon={RefreshCw}
-          loading={runSweep.pending}
-          onClick={() => runSweep.run().catch(() => {})}
-        >
-          {runSweep.pending ? 'Sweeping…' : 'Run monitoring sweep'}
-        </Button>
+        {canSweep && (
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={runSweep.pending}
+            onClick={startSweep}
+          >
+            {runSweep.pending ? 'Sweeping…' : 'Run monitoring sweep'}
+          </Button>
+        )}
       </PageHeader>
 
       {error && <ErrorState error={error} onRetry={reload} />}
@@ -268,14 +289,16 @@ export default function ReactiveAmlPage() {
                     : 'Run a monitoring sweep to analyse settled transactions for laundering typologies.'
                 }
                 action={
-                  <Button
-                    variant="secondary"
-                    icon={RefreshCw}
-                    loading={runSweep.pending}
-                    onClick={() => runSweep.run().catch(() => {})}
-                  >
-                    Run monitoring sweep
-                  </Button>
+                  canSweep && (
+                    <Button
+                      variant="secondary"
+                      icon={RefreshCw}
+                      loading={runSweep.pending}
+                      onClick={startSweep}
+                    >
+                      Run monitoring sweep
+                    </Button>
+                  )
                 }
               />
             </Card>

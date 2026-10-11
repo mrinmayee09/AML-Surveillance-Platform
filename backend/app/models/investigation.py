@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -36,9 +37,9 @@ class Investigation(Base, TimestampMixin):
     assignee_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
-    opened_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    due_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     # Set only when a human analyst records a conclusion
     outcome: Mapped[Optional[str]] = mapped_column(String(48), nullable=True)
 

@@ -77,7 +77,10 @@ export default function InvestigationDetailPage() {
   const toast = useToast()
   const { can } = useAuth()
 
-  const { data, error, loading, reload } = useApi(() => api.investigation(caseRef), [caseRef])
+  const { data, error, loading, reload } = useApi(
+    (signal) => api.investigation(caseRef, signal),
+    [caseRef],
+  )
   const users = useApi(() => api.listUsers(), [], { enabled: can('users:manage') })
 
   const [noteOpen, setNoteOpen] = useState(false)

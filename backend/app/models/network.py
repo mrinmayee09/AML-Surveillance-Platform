@@ -10,10 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -22,10 +23,20 @@ class Network(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     network_ref: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # Stable identity across sweeps: hash of pattern + sorted member accounts.
+    # Re-detecting the same cluster updates this row (keeping its ref, alerts and
+    # investigation links) instead of deleting and recreating it.
+    fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
+    )
+    # False once a sweep no longer detects the cluster. Inactive clusters are
+    # kept only while an alert, investigation or assessment still references them.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     label: Mapped[str] = mapped_column(String(128))
     # CIRCULAR | LAYERED | FAN_OUT | FAN_IN | SMURFING | PASS_THROUGH | NORMAL
     pattern: Mapped[str] = mapped_column(String(24), default="NORMAL", index=True)
-    detected_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
     node_count: Mapped[int] = mapped_column(Integer, default=0)
     edge_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -92,7 +103,7 @@ class NetworkEdge(Base, TimestampMixin):
 
     amount: Mapped[float] = mapped_column(Float, default=0.0)
     txn_type: Mapped[str] = mapped_column(String(16), default="TRANSFER")
-    occurred_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    occurred_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     # GNN edge-scoring head output (0-100)
     gnn_edge_score: Mapped[float] = mapped_column(Float, default=0.0)
     is_suspicious: Mapped[bool] = mapped_column(Boolean, default=False, index=True)

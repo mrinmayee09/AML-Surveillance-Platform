@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.models import (
     Alert,
     Customer,
@@ -102,7 +103,7 @@ def create_investigation(
     risk_score = alert.risk_score if alert else (
         resolved_customer.current_risk_score if resolved_customer else 0.0
     )
-    opened = opened_at or datetime.utcnow()
+    opened = opened_at or utcnow()
 
     investigation = Investigation(
         case_ref=_next_ref(db),
@@ -223,7 +224,7 @@ def transition(
 
     investigation.status = new_status
     if new_status in _CLOSED:
-        investigation.closed_at = datetime.utcnow()
+        investigation.closed_at = utcnow()
         investigation.outcome = outcome or (
             "Cleared - no further action"
             if new_status == InvestigationStatus.CLOSED_CLEARED.value
@@ -236,7 +237,7 @@ def transition(
                 if new_status == InvestigationStatus.CLOSED_CLEARED.value
                 else AlertStatus.CONFIRMED_SUSPICIOUS.value
             )
-            investigation.alert.closed_at = datetime.utcnow()
+            investigation.alert.closed_at = utcnow()
             investigation.alert.disposition_note = investigation.outcome
     else:
         investigation.closed_at = None

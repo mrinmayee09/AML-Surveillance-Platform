@@ -138,9 +138,13 @@ def gnn_card(db: Session) -> Dict[str, Any]:
 
     account_count = int(db.scalar(select(func.count(Account.id))) or 0)
     txn_count = int(db.scalar(select(func.count(Transaction.id))) or 0)
-    network_count = int(db.scalar(select(func.count(Network.id))) or 0)
+    active = Network.is_active.is_(True)
+    network_count = int(db.scalar(select(func.count(Network.id)).where(active)) or 0)
     suspicious_count = int(
-        db.scalar(select(func.count(Network.id)).where(Network.is_suspicious.is_(True))) or 0
+        db.scalar(
+            select(func.count(Network.id)).where(active, Network.is_suspicious.is_(True))
+        )
+        or 0
     )
 
     caveats = getattr(engine, "caveats", None) or []

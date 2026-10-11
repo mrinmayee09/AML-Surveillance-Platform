@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -22,7 +23,7 @@ class Transaction(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     txn_ref: Mapped[str] = mapped_column(String(32), unique=True, index=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
     sender_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
     receiver_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)

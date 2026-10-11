@@ -159,10 +159,24 @@ prints the demo credentials. Useful flags:
 
 ```bash
 python -m seed.seed --help
-python -m seed.seed --reset            # drop and rebuild everything
-python -m seed.seed --skip-models      # reuse existing artifacts (much faster)
-python -m seed.seed --customers 200    # scale the dataset
+python -m seed.seed --no-train         # reuse existing model artifacts (much faster)
+python -m seed.seed --small            # smaller dataset for faster iteration
+python -m seed.seed --keep             # clear rows instead of dropping tables
+python -m seed.seed --seed 7           # different RNG seed
 ```
+
+By default the seed **drops and recreates every table**. There are no migrations yet,
+so after a model/schema change re-run the seed without `--keep` to pick up new columns.
+
+### Tests
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+python -m pytest tests
+```
+
+The suite uses its own throwaway SQLite file and never touches `database/aml.db`.
 
 ### Run
 
@@ -343,6 +357,54 @@ Both models sit behind interfaces (`ProactiveRiskModel`, `GNNInferenceEngine`) r
 registries. To use PyTorch Geometric, implement `GNNInferenceEngine` and register it —
 nothing else changes. `GNN_ENGINE=analytic` forces the untrained fallback for comparison.
 
+### The window GNN: GraphSAGE trained on IBM AMLworld
+
+The network layer's learned model. It scores **one account at a time from its
+neighbourhood** and is trained and evaluated on **IBM AMLworld** (Altman et al.,
+NeurIPS 2023), an independent public AML benchmark, rather than on this project's own
+generator. Plain-language guide: [`docs/GNN_EXPLAINED.md`](docs/GNN_EXPLAINED.md).
+Results (generated from the run reports): [`docs/GNN_RESULTS.md`](docs/GNN_RESULTS.md).
+
+| Step | What | Code |
+|---|---|---|
+| R1 | 7-day, 3-hop neighbourhood **windows**; each account's features computed from all its activity, so it looks the same in every window | `app/graph/window.py`, `app/graph/features_v2.py`, `app/graph/db_source.py` |
+| R2 | AMLworld loader, **time-based** 60/20/20 split, weighted negative sampling, baselines (gradient boosting, logistic regression) vs the GNN | `app/datasets/amlworld.py`, `app/gnn/window_dataset.py`, `app/gnn/r2.py` |
+| R3 | **GraphSAGE ablation** - A plain, B directed, C edge-aware; the app's model is chosen on validation only | `app/gnn/sage.py`, `app/gnn/r3.py` |
+| R4 | **Explanations** by occlusion (which transfers the score rests on) and a fidelity test | `app/gnn/explain_v2.py`, `app/gnn/r4.py` |
+| R5 | In the app: settled payments are scored in the background, **Run GNN scoring** on the Network page, alerts with the transfers behind them | `app/services/gnn_v2_service.py`, `GET/POST /api/networks/gnn/*` |
+| R6 | Results tables generated from the reports | `app/gnn/report_md.py` |
+
+**Reproduce** (CPU is enough; a full run takes a few hours, mostly training 5 seeds per model):
+
+1. Download two files of the **HI-Small** variant from Kaggle, *IBM Transactions for
+   Anti Money Laundering (AML)*: `HI-Small_Trans.csv` (~0.5 GB) and
+   `HI-Small_Patterns.txt`, into `data/amlworld/` (git-ignored).
+2. Run:
+
+```bash
+cd backend
+python -m app.gnn.r2 --trans ../data/amlworld/HI-Small_Trans.csv --patterns ../data/amlworld/HI-Small_Patterns.txt --until 2022-09-10
+python -m app.gnn.r3 --trans ../data/amlworld/HI-Small_Trans.csv --patterns ../data/amlworld/HI-Small_Patterns.txt --until 2022-09-10
+python -m app.gnn.r4 --trans ../data/amlworld/HI-Small_Trans.csv --patterns ../data/amlworld/HI-Small_Patterns.txt --until 2022-09-10
+python -m app.gnn.report_md
+```
+
+R3 exports the selected model to `backend/app/gnn/artifacts/aml_gnn_v2.pt` (with a
+readable `.meta.json`); the app picks it up on the next start, and `python -m seed.seed`
+scores the demo data with it. Without it, the app runs as before and the GNN panel says
+the model is not trained.
+
+`--until 2022-09-10` matters: after 10 Sept HI-Small has only ~1.1K transfers, ~59% of them
+laundering (the simulator keeps laundering after normal activity stops). Left in, they
+fall in the test split and inflate every model's score. Negatives are subsampled and
+weighted, so precision, PR-AUC and alert rate estimate the result on *all* active
+accounts at the real class balance (~0.3% positive).
+
+**Domain note.** AMLworld is multi-currency, US-style data; this platform's demo data is
+INR / UPI. Features are currency-neutral (amounts converted to USD, payment channels
+mapped to shared payment rails), but the accuracy figures are AMLworld results - on the
+demo data the model illustrates the mechanism.
+
 ---
 
 ## 6. What is real and what is simulated
@@ -354,9 +416,13 @@ This is the section to read before trusting any number in the UI.
 - **The RandomForest is really fitted.** 13,500 training rows, held-out 25% stratified
   split. Reported metrics come from that split: **accuracy 0.932, precision 0.934,
   recall 0.871, F1 0.901, ROC-AUC 0.916.**
-- **The GNN is really trained** by backpropagation on 848 graphs (~26.5k nodes, ~38.9k
-  edges), 26 epochs, AdamW + cosine schedule, positive-class weighting. Held-out
-  **node F1 0.949 (precision 0.904, recall 0.999, AUC 0.987).**
+- **The window GNN is really trained and tested on independent data**: GraphSAGE on IBM
+  AMLworld HI-Small with a time-based split, compared against gradient boosting and
+  logistic regression, several seeds, thresholds chosen on validation. Results:
+  [`docs/GNN_RESULTS.md`](docs/GNN_RESULTS.md).
+- **The legacy structural GNN** (`app/gnn/torch_gnn.py` checkpoint `aml_gnn.pt`) is really
+  trained by backpropagation on 848 *self-generated* graphs; its held-out node F1 0.949 is
+  measured on that generator only (see below).
 - **Occlusion attributions** are real model interrogations.
 - **Graph algorithms** (Tarjan SCC, DFS chains, value-weighted PageRank in the fallback)
   are real implementations, not decoration.
@@ -374,14 +440,18 @@ This is the section to read before trusting any number in the UI.
     from overlapping distributions. Two archetypes (`SME_HIGH_VALUE_LEGIT`,
     `VOLATILE_LEGIT`) are deliberate **hard negatives** — big, frequent, cross-border but
     legitimate — so the model cannot separate classes on transaction size alone.
-  - The GNN uses **structural ground truth by construction**: topologies are injected into
+  - The legacy structural GNN uses **structural ground truth by construction**: topologies are injected into
     generated graphs, so node/edge/graph labels are known exactly. Benign look-alikes
     (flash-sale merchant collections, uniform contractor payout runs, same-day thin-margin
     trade settlements) are included as hard negatives, and **every negative graph contains
     at least one** — without them the task degenerates into counting node degree.
 
-  So the honest claim is: **the GNN has really learned to recognise laundering
+  So the honest claim is: **the legacy GNN has really learned to recognise laundering
   *topologies*. It has not learned, and cannot claim, to identify money launderers.**
+  This is why the window GNN is trained and evaluated on AMLworld instead.
+  - **IBM AMLworld** is itself simulated (by an independent team, from a virtual economy):
+    no public dataset of real, labelled bank transactions exists, because of privacy law
+    and the confidentiality of suspicious-transaction reports.
 - **All customer, account and transaction data** is generated. No real financial data.
 - **The payment provider.** There is no integration. Where a provider SDK call would go,
   the API returns an explicit `payment_provider_note` saying so, and the UI displays it.

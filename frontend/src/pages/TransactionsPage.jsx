@@ -65,7 +65,7 @@ const ALERT_OPTIONS = [
 /* ------------------------------------------------------------------ drawer */
 
 function TransactionDrawer({ txnRef, onClose }) {
-  const { data, error, loading } = useApi(() => api.transaction(txnRef), [txnRef], {
+  const { data, error, loading } = useApi((signal) => api.transaction(txnRef, signal), [txnRef], {
     enabled: Boolean(txnRef),
   })
 

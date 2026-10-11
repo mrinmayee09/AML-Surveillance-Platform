@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { format } from 'date-fns'
 import {
   ArrowDownRight,
   ArrowRight,
@@ -12,7 +13,7 @@ import {
   ShieldCheck,
   Siren,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import {
@@ -38,7 +39,7 @@ import {
 } from '../components/ui.jsx'
 import { useApi } from '../hooks/useApi.js'
 import { api } from '../services/api.js'
-import { formatDateTime, formatInr, formatNumber, formatRelative } from '../utils/format.js'
+import { formatDateTime, formatInr, formatNumber, formatRelative, toDate } from '../utils/format.js'
 
 const WINDOWS = [
   { value: '24H', label: '24H' },
@@ -151,6 +152,17 @@ export default function DashboardPage() {
     [window],
   )
 
+  // Hourly buckets are computed in UTC on the server ("2026-10-04 14:00"); label
+  // them in the viewer's local time so the 24H axis matches every other timestamp.
+  const series = useMemo(() => {
+    const points = data?.series ?? []
+    if (window !== '24H') return points
+    return points.map((point) => {
+      const start = toDate(point.bucket)
+      return start ? { ...point, label: format(start, 'HH:mm') } : point
+    })
+  }, [data, window])
+
   return (
     <>
       <PageHeader
@@ -205,8 +217,8 @@ export default function DashboardPage() {
               />
               {loading ? (
                 <Skeleton className="h-[230px] w-full" />
-              ) : data?.series?.length ? (
-                <RiskTrendChart series={data.series} />
+              ) : series.length ? (
+                <RiskTrendChart series={series} />
               ) : (
                 <EmptyState
                   title="No transactions in this window"
@@ -246,7 +258,7 @@ export default function DashboardPage() {
           <div className="grid gap-3 xl:grid-cols-3">
             <Card>
               <CardHeader title="Transaction volume" subtitle="Total value screened." />
-              {loading ? <Skeleton className="h-[170px]" /> : <VolumeChart series={data?.series} />}
+              {loading ? <Skeleton className="h-[170px]" /> : <VolumeChart series={series} />}
             </Card>
             <Card>
               <CardHeader
@@ -256,7 +268,7 @@ export default function DashboardPage() {
               {loading ? (
                 <Skeleton className="h-[170px]" />
               ) : (
-                <SuspiciousShareChart series={data?.series} />
+                <SuspiciousShareChart series={series} />
               )}
             </Card>
             <Card>
@@ -264,7 +276,7 @@ export default function DashboardPage() {
               {loading ? (
                 <Skeleton className="h-[170px]" />
               ) : (
-                <AlertsTrendChart series={data?.series} />
+                <AlertsTrendChart series={series} />
               )}
             </Card>
           </div>

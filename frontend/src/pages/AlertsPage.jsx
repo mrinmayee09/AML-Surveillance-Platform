@@ -21,7 +21,7 @@ import {
   Th,
   Tr,
 } from '../components/ui.jsx'
-import { useApi, useDebounced } from '../hooks/useApi.js'
+import { ALERTS_CHANGED_EVENT, useApi, useDebounced } from '../hooks/useApi.js'
 import { api } from '../services/api.js'
 import { formatDateTime, formatNumber, humanise } from '../utils/format.js'
 
@@ -72,8 +72,14 @@ export default function AlertsPage() {
     [debounced, status, source, riskLevel, page],
   )
 
-  const { data, error, loading, reload } = useApi((signal) => api.alerts(query, signal), [query])
-  const stats = useApi(() => api.alertStats(), [])
+  const { data, error, loading, reload } = useApi((signal) => api.alerts(query, signal), [query], {
+    refetchOn: ALERTS_CHANGED_EVENT,
+    refetchOnFocus: true,
+  })
+  const stats = useApi((signal) => api.alertStats(signal), [], {
+    refetchOn: ALERTS_CHANGED_EVENT,
+    refetchOnFocus: true,
+  })
 
   const activeFilters = [status, source, riskLevel].filter(Boolean).length + (debounced ? 1 : 0)
 
@@ -104,7 +110,7 @@ export default function AlertsPage() {
           <Card>
             <p className="text-2xs uppercase tracking-wide text-slateish-400">Open</p>
             <p className="tnum mt-1 font-mono text-lg font-semibold text-risk-high">
-              {formatNumber(stats.data.open)}
+              {formatNumber(stats.data.open_total)}
             </p>
           </Card>
           {Object.entries(stats.data.by_status ?? {}).map(([key, count]) => (

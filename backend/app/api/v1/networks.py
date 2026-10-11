@@ -19,7 +19,7 @@ from app.schemas.network import (
     NetworkListItem,
     NodeInspection,
 )
-from app.services import audit_service, network_service
+from app.services import audit_service, gnn_v2_service, network_service
 from app.services.audit_service import Actor
 
 router = APIRouter(prefix="/networks", tags=["networks"])
@@ -65,7 +65,9 @@ def list_networks(
 ):
     stmt = select(Network)
     count_stmt = select(func.count(Network.id))
-    conditions = []
+    # Clusters a later sweep no longer detects stay reachable by ref (alerts and
+    # cases link to them) but drop out of the list.
+    conditions = [Network.is_active.is_(True)]
 
     if pattern:
         conditions.append(Network.pattern == pattern.upper())
@@ -182,6 +184,66 @@ def run_analysis(
             "trained": engine.trained,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Window GNN (GraphSAGE trained on IBM AMLworld). Declared before the
+# /{network_ref} routes so "gnn" is never read as a network ref.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/gnn/status")
+def gnn_status(_: User = Depends(get_current_user)):
+    """Is the trained window GNN available, and how did it score on AMLworld?"""
+    return gnn_v2_service.status()
+
+
+@router.post("/gnn/score")
+def gnn_score(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(get_actor),
+    _: User = Depends(require_alerts_update),
+    hours: int = Query(24, ge=1, le=24 * 7),
+):
+    """Score every account active in the last `hours` of settled activity."""
+    if not gnn_v2_service.status()["available"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "model_unavailable", "message": "The window GNN has not been trained yet."},
+        )
+    result = gnn_v2_service.score_recent(db, hours=hours)
+    audit_service.record(
+        db,
+        actor,
+        action="GNN_SCORING_RUN",
+        resource_type="SYSTEM",
+        resource_ref="GNN_V2",
+        new_state=f"{result['scored']} scored, {result['flagged']} flagged",
+        detail=f"Window GNN scored {result['scored']} account(s) active in the {hours}h before "
+        f"{result['window_end']}; {result['flagged']} above threshold.",
+    )
+    db.commit()
+    return result
+
+
+@router.get("/gnn/accounts/{account_ref}")
+def gnn_account(
+    account_ref: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Latest GNN score and explanation for one account (scored on demand if needed)."""
+    row = gnn_v2_service.latest_for(db, account_ref)
+    if row is None and gnn_v2_service.status()["available"]:
+        rows = gnn_v2_service.score_accounts(db, [account_ref], raise_alerts=False)
+        db.commit()
+        row = rows[0] if rows else None
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "not_scored", "message": f"No GNN score for {account_ref}."},
+        )
+    return gnn_v2_service.to_dict(row)
 
 
 @router.get("/{network_ref}", response_model=NetworkDetail)

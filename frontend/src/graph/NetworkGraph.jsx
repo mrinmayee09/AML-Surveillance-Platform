@@ -9,6 +9,7 @@
  *  - Edge WIDTH    = transfer amount
  *  - Edge COLOUR   = edge risk from the GNN edge head
  *  - Edge ANIMATION = only on flagged edges, so motion means something
+ *  - Edge ARROW    = direction of the money flow (sender -> receiver)
  *
  * A node's role in a detected typology (SOURCE / INTERMEDIARY / CONVERGENCE) is
  * printed on the node, because that is what an investigator actually reads.
@@ -32,7 +33,7 @@ import 'reactflow/dist/style.css'
 
 import clsx from 'clsx'
 import { Building2, CreditCard, Landmark, Store, Wallet } from 'lucide-react'
-import { memo, useCallback, useEffect, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { RISK_COLORS } from '../charts/index.jsx'
 import { formatInr, riskMeta } from '../utils/format.js'
@@ -60,6 +61,12 @@ function bandFor(score) {
   if (score >= 60) return 'HIGH'
   if (score >= 35) return 'MEDIUM'
   return 'LOW'
+}
+
+const NEUTRAL_EDGE = '#3b4d73'
+
+function edgeColor(edge) {
+  return edge?.is_suspicious ? RISK_COLORS[bandFor(edge?.gnn_edge_score ?? 0)] : NEUTRAL_EDGE
 }
 
 /* --------------------------------------------------------------- node type */
@@ -117,7 +124,18 @@ AccountNode.displayName = 'AccountNode'
 /* --------------------------------------------------------------- edge type */
 
 const FlowEdge = memo(
-  ({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, selected }) => {
+  ({
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    data,
+    selected,
+    markerEnd,
+  }) => {
     const [path, labelX, labelY] = getBezierPath({
       sourceX,
       sourceY,
@@ -126,8 +144,7 @@ const FlowEdge = memo(
       targetY,
       targetPosition,
     })
-    const band = bandFor(data?.gnn_edge_score ?? 0)
-    const color = data?.is_suspicious ? RISK_COLORS[band] : '#3b4d73'
+    const color = edgeColor(data)
     const width = Math.min(5, 1 + Math.log10(Math.max(data?.amount ?? 1, 1)) * 0.5)
 
     return (
@@ -141,7 +158,9 @@ const FlowEdge = memo(
             strokeDasharray: data?.is_suspicious ? '6 3' : undefined,
             opacity: data?.is_suspicious ? 0.95 : 0.5,
           }}
-          markerEnd={MarkerType.ArrowClosed}
+          // React Flow resolves the edge object's `markerEnd` into a url(#id)
+          // reference and hands it to the custom edge; BaseEdge needs that.
+          markerEnd={markerEnd}
         />
         {(selected || data?.is_suspicious) && (
           <EdgeLabelRenderer>
@@ -169,7 +188,7 @@ const edgeTypes = { flow: FlowEdge }
 
 /* ------------------------------------------------------------- transforms */
 
-function toFlowNodes(nodes, { highlighted, dimmed }) {
+function toFlowNodes(nodes, { highlighted, dimmed, selectedNodeId }) {
   return (nodes ?? []).map((node, index) => {
     // Fall back to a deterministic spiral when the backend gave no layout hint
     const hasLayout = node.x !== 0 || node.y !== 0
@@ -182,6 +201,7 @@ function toFlowNodes(nodes, { highlighted, dimmed }) {
         ? { x: node.x, y: node.y }
         : { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius },
       data: node,
+      ...(selectedNodeId !== undefined ? { selected: node.id === selectedNodeId } : {}),
       style: {
         opacity: dimmed?.size ? (dimmed.has(node.id) ? 0.18 : 1) : 1,
         ...(highlighted?.has(node.id) ? { zIndex: 10 } : {}),
@@ -198,6 +218,7 @@ function toFlowEdges(edges, { dimmed }) {
     type: 'flow',
     data: edge,
     animated: edge.is_suspicious,
+    markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(edge), width: 14, height: 14 },
     style: {
       opacity: dimmed?.size ? (dimmed.has(edge.source) || dimmed.has(edge.target) ? 0.1 : 1) : 1,
     },
@@ -213,6 +234,7 @@ function GraphInner({
   onEdgeSelect,
   selectedNodeId,
   focusNeighboursOf,
+  layoutKey,
 }) {
   const { fitView } = useReactFlow()
 
@@ -233,15 +255,41 @@ function GraphInner({
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
 
+  // Update nodes in place rather than replacing them: a node the investigator
+  // dragged keeps its position (and React Flow its selection) across focus,
+  // filter and data refreshes. Positions reset only when `layoutKey` changes,
+  // i.e. a different graph is being shown.
+  const layoutKeyRef = useRef(layoutKey)
   useEffect(() => {
-    setNodes(toFlowNodes(rawNodes, { highlighted, dimmed }))
-    setEdges(toFlowEdges(rawEdges, { dimmed }))
-  }, [rawNodes, rawEdges, highlighted, dimmed, setNodes, setEdges])
+    const sameLayout = layoutKeyRef.current === layoutKey
+    layoutKeyRef.current = layoutKey
+    setNodes((previous) => {
+      const byId = new Map(previous.map((n) => [n.id, n]))
+      return toFlowNodes(rawNodes, { highlighted, dimmed, selectedNodeId }).map((node) => {
+        const old = byId.get(node.id)
+        if (!old) return node
+        return {
+          ...node,
+          position: sameLayout ? old.position : node.position,
+          selected: node.selected ?? old.selected,
+        }
+      })
+    })
+    setEdges((previous) => {
+      const selected = new Set(previous.filter((e) => e.selected).map((e) => e.id))
+      return toFlowEdges(rawEdges, { dimmed }).map((edge) =>
+        selected.has(edge.id) ? { ...edge, selected: true } : edge,
+      )
+    })
+  }, [rawNodes, rawEdges, highlighted, dimmed, selectedNodeId, layoutKey, setNodes, setEdges])
 
+  // Re-fit when a different graph is shown or nodes appear/disappear, not on
+  // every refresh of the same graph.
+  const nodeCount = rawNodes?.length ?? 0
   useEffect(() => {
     const id = setTimeout(() => fitView({ padding: 0.22, duration: 320 }), 60)
     return () => clearTimeout(id)
-  }, [rawNodes, fitView])
+  }, [layoutKey, nodeCount, fitView])
 
   const handleNodeClick = useCallback(
     (_event, node) => onNodeSelect?.(node.data),

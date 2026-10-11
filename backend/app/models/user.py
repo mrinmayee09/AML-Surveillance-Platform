@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -24,7 +25,7 @@ class User(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(16), default="ANALYST", index=True)
     team: Mapped[Optional[str]] = mapped_column(String(64), default="AML Operations")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     investigations: Mapped[List["Investigation"]] = relationship(
         "Investigation",

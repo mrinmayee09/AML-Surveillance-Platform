@@ -36,8 +36,9 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { Chip, Spinner } from '../components/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
+import { ALERTS_CHANGED_EVENT, useApi } from '../hooks/useApi.js'
 import { api } from '../services/api.js'
-import { initials } from '../utils/format.js'
+import { initials, localZoneName } from '../utils/format.js'
 
 const NAV_GROUPS = [
   {
@@ -277,19 +278,22 @@ function Clock() {
       className="tnum hidden font-mono text-2xs text-slateish-400 lg:block"
     >
       {now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{' '}
-      {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })} IST
+      {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })}{' '}
+      {localZoneName(now)}
     </time>
   )
 }
 
 function Notifications() {
   const [open, setOpen] = useState(false)
-  const [stats, setStats] = useState(null)
   const ref = useRef(null)
-
-  useEffect(() => {
-    api.alertStats().then(setStats).catch(() => {})
-  }, [])
+  // The badge must track the queue: poll, refresh on tab focus, and refresh
+  // immediately when this tab changes alerts (sweeps, status changes).
+  const { data: stats } = useApi((signal) => api.alertStats(signal), [], {
+    refetchInterval: 60_000,
+    refetchOnFocus: true,
+    refetchOn: ALERTS_CHANGED_EVENT,
+  })
 
   useEffect(() => {
     function onClick(e) {
@@ -299,7 +303,7 @@ function Notifications() {
     return () => document.removeEventListener('mousedown', onClick)
   }, [])
 
-  const open_count = stats?.open ?? 0
+  const open_count = stats?.open_total ?? 0
 
   return (
     <div ref={ref} className="relative">

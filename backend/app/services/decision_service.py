@@ -23,13 +23,14 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime
+
 from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.types import utcnow
 from app.models import Account, Customer, Order, Transaction
 from app.models.enums import (
     AssessmentKind,
@@ -146,7 +147,7 @@ def _integrity_failure_response(
             "not by a risk model. The client-supplied amount was rejected; the "
             "server-authorised amount is unchanged."
         ),
-        evaluated_at=datetime.utcnow(),
+        evaluated_at=utcnow(),
     )
 
 
@@ -471,7 +472,7 @@ def run_gateway(
             PROVIDER_NOTE_ALLOWED if amount_forwarded else PROVIDER_NOTE_BLOCKED
         ),
         advisory=risk_service.RISK_ADVISORY,
-        evaluated_at=datetime.utcnow(),
+        evaluated_at=utcnow(),
     )
 
 
@@ -501,7 +502,7 @@ def _create_transaction(
 
     txn = Transaction(
         txn_ref=f"TXN-{uuid.uuid4().hex[:12].upper()}",
-        occurred_at=datetime.utcnow(),
+        occurred_at=utcnow(),
         sender_account_id=sender.id,
         receiver_account_id=receiver.id,
         order_id=order.id,

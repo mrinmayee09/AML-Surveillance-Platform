@@ -9,17 +9,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
 
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

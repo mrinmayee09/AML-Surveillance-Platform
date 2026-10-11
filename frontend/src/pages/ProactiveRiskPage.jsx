@@ -47,7 +47,7 @@ export default function ProactiveRiskPage() {
     }
   }, [overview.data, selected])
 
-  const detail = useApi(() => api.customerRisk(selected), [selected], {
+  const detail = useApi((signal) => api.customerRisk(selected, signal), [selected], {
     enabled: Boolean(selected),
   })
 

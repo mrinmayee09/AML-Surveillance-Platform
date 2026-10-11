@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import statistics
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.types import utcnow
 from app.models import Counterparty, Customer, RiskAssessment, Transaction
 from app.models.enums import AssessmentKind
 from app.rules.engine import evaluate, load_behavioural_rules
@@ -28,13 +29,13 @@ def behavioural_stats(db: Session, customer: Customer) -> Dict[str, Any]:
     span_days = 1
     if history:
         earliest = min(t.occurred_at for t in history)
-        span_days = max((datetime.utcnow() - earliest).days, 1)
+        span_days = max((utcnow() - earliest).days, 1)
 
     new_cp = int(
         db.scalar(
             select(func.count(Counterparty.id)).where(
                 Counterparty.customer_id == customer.id,
-                Counterparty.first_seen_at >= datetime.utcnow() - timedelta(days=30),
+                Counterparty.first_seen_at >= utcnow() - timedelta(days=30),
             )
         )
         or 0
@@ -80,7 +81,7 @@ def risk_trajectory(
     db: Session, customer: Customer, weeks: int = 8
 ) -> List[Dict[str, Any]]:
     """Weekly risk history: the trajectory chart on the proactive page."""
-    cutoff = datetime.utcnow() - timedelta(weeks=weeks)
+    cutoff = utcnow() - timedelta(weeks=weeks)
     rows: Sequence[RiskAssessment] = db.scalars(
         select(RiskAssessment)
         .where(
@@ -130,7 +131,7 @@ def risk_profile(db: Session, customer: Customer) -> Dict[str, Any]:
         "risk_level": result.level,
         "trend": result.trend,
         "decision": result.decision,
-        "assessed_at": datetime.utcnow(),
+        "assessed_at": utcnow(),
         "model_probability": result.model_probability,
         "provenance": result.provenance,
         "factors": result.factors,
@@ -204,7 +205,7 @@ def proactive_overview(db: Session, limit: int = 25) -> Dict[str, Any]:
         )
 
     # Portfolio-average risk over the last 12 weeks
-    cutoff = datetime.utcnow() - timedelta(weeks=12)
+    cutoff = utcnow() - timedelta(weeks=12)
     rows = db.scalars(
         select(RiskAssessment)
         .where(

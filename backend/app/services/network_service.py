@@ -21,14 +21,17 @@ whether that engine is actually trained.
 
 from __future__ import annotations
 
+import hashlib
+import re
 import uuid
-from datetime import datetime
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.types import utcnow
 from app.gnn.base import GNNOutput
 from app.gnn.explain import NETWORK_DISCLAIMER, build_network_signals, structural_metrics
 from app.gnn.registry import get_gnn_engine
@@ -143,6 +146,40 @@ def build_provenance(output: GNNOutput) -> ModelProvenance:
     )
 
 
+def _fingerprint(pattern: str, node_keys: Sequence[str]) -> str:
+    """Stable cluster identity: the same typology over the same accounts."""
+    payload = pattern + "|" + "|".join(sorted(node_keys))
+    return hashlib.sha256(payload.encode()).hexdigest()[:64]
+
+
+def _next_network_seq(existing: Sequence[Network]) -> int:
+    highest = 0
+    for network in existing:
+        match = re.fullmatch(r"NET-(\d+)", network.network_ref or "")
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest + 1
+
+
+def _retire_unseen(db: Session, existing: Sequence[Network], seen_ids: set[int]) -> None:
+    """Clusters this sweep no longer detects.
+
+    One still referenced by an alert, investigation or assessment is kept (as
+    inactive) so that evidence trail stays intact; an unreferenced one is deleted.
+    """
+    for network in existing:
+        if network.id in seen_ids:
+            continue
+        referenced = any(
+            db.scalar(select(model.id).where(model.network_id == network.id).limit(1))
+            for model in (Alert, Investigation, RiskAssessment)
+        )
+        if referenced:
+            network.is_active = False
+        else:
+            db.delete(network)
+
+
 def analyse_graph(
     db: Session,
     snapshot: Optional[GraphSnapshot] = None,
@@ -177,31 +214,37 @@ def analyse_graph(
     candidates.sort(key=lambda c: c.structural_score, reverse=True)
     candidates = candidates[:max_networks]
 
+    now = utcnow()
+    existing: List[Network] = []
     if persist:
-        # Clusters are a derived projection, rebuilt from scratch each sweep.
-        # EVERY table referencing networks.id must be detached first, or the
-        # delete fails on a foreign-key violation. Investigations and risk
-        # assessments are user/audit data and are preserved - only their link to
-        # the regenerated cluster is cleared.
+        # Clusters keep a stable identity across sweeps (see `_fingerprint`):
+        # a re-detected cluster is updated in place, so its ref, alerts and
+        # investigation links survive. Only the derived membership rows and the
+        # transaction links are rebuilt from scratch.
+        existing = list(db.scalars(select(Network)).all())
         db.execute(delete(NetworkEdge))
         db.execute(delete(NetworkNode))
         db.execute(
             Transaction.__table__.update().values(network_id=None, is_suspicious_edge=False)
         )
-        db.execute(Alert.__table__.update().values(network_id=None))
-        db.execute(Investigation.__table__.update().values(network_id=None))
-        db.execute(RiskAssessment.__table__.update().values(network_id=None))
-        db.execute(delete(Network))
         db.flush()
+    existing_by_fp = {n.fingerprint: n for n in existing if n.fingerprint}
+    next_seq = _next_network_seq(existing)
+    seen_ids: set[int] = set()
+    seen_fps: set[str] = set()
 
     networks: List[Network] = []
     account_by_ref = {a.account_ref: a for a in db.scalars(select(Account)).all()}
     txn_by_ref = {t.txn_ref: t for t in db.scalars(select(Transaction)).all()}
 
-    for index, candidate in enumerate(candidates, start=1):
+    for candidate in candidates:
         sub = graph.subgraph(candidate.node_keys)
         if sub.num_nodes < MIN_CLUSTER_NODES or sub.num_edges == 0:
             continue
+        fingerprint = _fingerprint(candidate.pattern, sub.node_keys)
+        if fingerprint in seen_fps:
+            continue
+        seen_fps.add(fingerprint)
 
         output = engine.infer(sub)
         composite = _composite_score(output.graph_score, candidate.structural_score)
@@ -211,29 +254,37 @@ def analyse_graph(
         positions = _radial_layout(sub, candidate)
         is_suspicious = composite >= SUSPICIOUS_THRESHOLD
 
-        network = Network(
-            network_ref=f"NET-{index:04d}",
-            label=_pattern_label(candidate.pattern, index),
-            pattern=candidate.pattern,
-            detected_at=datetime.utcnow(),
-            node_count=sub.num_nodes,
-            edge_count=sub.num_edges,
-            total_flow=round(sub.total_flow(), 2),
-            risk_score=composite,
-            risk_level=level,
-            is_suspicious=is_suspicious,
-            model_name=output.engine_name,
-            model_version=output.engine_version,
-            signals=signals,
-            structural_metrics=metrics,
-            summary=candidate.description,
-        )
+        network = existing_by_fp.get(fingerprint)
+        if network is None:
+            network = Network(
+                network_ref=f"NET-{next_seq:04d}",
+                label=_pattern_label(candidate.pattern, next_seq),
+                fingerprint=fingerprint,
+                pattern=candidate.pattern,
+                detected_at=now,
+            )
+            next_seq += 1
+        network.node_count = sub.num_nodes
+        network.edge_count = sub.num_edges
+        network.total_flow = round(sub.total_flow(), 2)
+        network.risk_score = composite
+        network.risk_level = level
+        network.is_suspicious = is_suspicious
+        network.is_active = True
+        network.last_seen_at = now
+        network.model_name = output.engine_name
+        network.model_version = output.engine_version
+        network.signals = signals
+        network.structural_metrics = metrics
+        network.summary = candidate.description
+
         if not persist:
             networks.append(network)
             continue
 
         db.add(network)
         db.flush()
+        seen_ids.add(network.id)
 
         for key in sub.node_keys:
             account = account_by_ref.get(key)
@@ -301,11 +352,16 @@ def analyse_graph(
 
         networks.append(network)
 
+    if persist:
+        _retire_unseen(db, existing, seen_ids)
     return networks
 
 
 def raise_network_alerts(db: Session, networks: Sequence[Network]) -> List[Alert]:
-    """One alert per suspicious cluster, written in indicator language."""
+    """One alert per suspicious cluster, written in indicator language.
+
+    Returns only newly raised alerts; clusters already alerted are refreshed.
+    """
     from app.services import alert_service
 
     created: List[Alert] = []
@@ -336,8 +392,14 @@ def raise_network_alerts(db: Session, networks: Sequence[Network]) -> List[Alert
             "require investigation."
         )
 
-        alert = alert_service.create_alert(
-            db=db,
+        # One live alert per cluster: re-detection refreshes it, and a cluster an
+        # analyst has closed is not re-raised for a full review window.
+        alert, is_new = alert_service.upsert_alert(
+            db,
+            dedupe_key=alert_service.dedupe_key_for(
+                "NETWORK", network.fingerprint or network.network_ref, "SUSPICIOUS_NETWORK"
+            ),
+            suppress_after_close=timedelta(days=30),
             source=AlertSource.NETWORK.value,
             alert_type="SUSPICIOUS_NETWORK_DETECTED",
             title=(
@@ -361,7 +423,8 @@ def raise_network_alerts(db: Session, networks: Sequence[Network]) -> List[Alert
                 "engine": network.model_name,
             },
         )
-        created.append(alert)
+        if is_new and alert is not None:
+            created.append(alert)
     return created
 
 
@@ -553,7 +616,9 @@ def explore_graph(
     else:
         # Default view: the union of all suspicious clusters
         suspicious = db.scalars(
-            select(Network).where(Network.is_suspicious.is_(True)).limit(8)
+            select(Network)
+            .where(Network.is_suspicious.is_(True), Network.is_active.is_(True))
+            .limit(8)
         ).all()
         keys: List[str] = []
         for network in suspicious:
@@ -689,7 +754,7 @@ def inspect_node(db: Session, account_ref: str, hops: int = 1) -> Dict[str, Any]
     memberships = db.scalars(
         select(Network)
         .join(NetworkNode, NetworkNode.network_id == Network.id)
-        .where(NetworkNode.account_id == account.id)
+        .where(NetworkNode.account_id == account.id, Network.is_active.is_(True))
     ).all()
 
     recent = db.scalars(
@@ -743,7 +808,7 @@ def inspect_node(db: Session, account_ref: str, hops: int = 1) -> Dict[str, Any]
 def suspicious_summary(db: Session, limit: int = 6) -> List[Dict[str, Any]]:
     rows = db.scalars(
         select(Network)
-        .where(Network.is_suspicious.is_(True))
+        .where(Network.is_suspicious.is_(True), Network.is_active.is_(True))
         .order_by(Network.risk_score.desc())
         .limit(limit)
     ).all()
@@ -765,5 +830,10 @@ def suspicious_summary(db: Session, limit: int = 6) -> List[Dict[str, Any]]:
 
 def suspicious_count(db: Session) -> int:
     return int(
-        db.scalar(select(func.count(Network.id)).where(Network.is_suspicious.is_(True))) or 0
+        db.scalar(
+            select(func.count(Network.id)).where(
+                Network.is_suspicious.is_(True), Network.is_active.is_(True)
+            )
+        )
+        or 0
     )

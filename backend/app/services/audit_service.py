@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.models import AuditLog, User
 
 
@@ -63,7 +64,7 @@ def record(
 ) -> AuditLog:
     """Append one audit entry. Caller commits."""
     entry = AuditLog(
-        occurred_at=occurred_at or datetime.utcnow(),
+        occurred_at=occurred_at or utcnow(),
         user_id=actor.user_id,
         actor=actor.username,
         actor_role=actor.role,

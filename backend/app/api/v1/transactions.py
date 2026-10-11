@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.deps import get_actor, get_current_user, require_gateway
-from app.db.base import get_db
+from app.db.base import SessionLocal, get_db
 from app.models import Account, Customer, Order, Transaction, User
 from app.models.enums import OrderStatus
 from app.schemas.common import Page
@@ -24,7 +24,7 @@ from app.schemas.transaction import (
     TransactionDetail,
     TransactionListItem,
 )
-from app.services import decision_service, integrity_service, risk_service
+from app.services import decision_service, gnn_v2_service, integrity_service, risk_service
 from app.services.audit_service import Actor
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -249,6 +249,7 @@ def analyze_transaction(
 @router.post("/decision", response_model=GatewayDecision)
 def transaction_decision(
     payload: PaymentIntentRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     actor: Actor = Depends(get_actor),
     _: User = Depends(require_gateway),
@@ -261,12 +262,30 @@ def transaction_decision(
     audit entry.
     """
     try:
-        return decision_service.run_gateway(db, payload, actor, settle_if_allowed=True)
+        decision = decision_service.run_gateway(db, payload, actor, settle_if_allowed=True)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "cannot_settle", "message": str(exc)},
         ) from exc
+    # Reactive network layer: once money has actually moved, score both parties'
+    # neighbourhoods with the window GNN - after the response, so it never delays
+    # the payment.
+    if decision.transaction_ref and decision.amount_forwarded is not None:
+        background.add_task(_score_settled_parties, decision.transaction_ref)
+    return decision
+
+
+def _score_settled_parties(txn_ref: str) -> None:
+    if gnn_v2_service.get_model() is None:
+        return
+    with SessionLocal() as db:
+        txn = db.scalar(select(Transaction).where(Transaction.txn_ref == txn_ref))
+        if txn is None:
+            return
+        refs = [txn.sender_account.account_ref, txn.receiver_account.account_ref]
+        gnn_v2_service.score_accounts(db, refs, window_end=txn.occurred_at)
+        db.commit()
 
 
 @router.get("/{txn_ref}", response_model=TransactionDetail)

@@ -13,6 +13,7 @@ from typing import Dict, Iterable, List, Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.graph.types import EdgeRecord, GraphSnapshot, NodeRecord, build_snapshot
 from app.models import Account, Network, NetworkNode, Transaction
 
@@ -169,7 +170,7 @@ def build_customer_graph(
     if not own_ids:
         return build_snapshot([], [])
 
-    since = datetime.utcnow() - timedelta(days=window_days)
+    since = utcnow() - timedelta(days=window_days)
     transactions: Sequence[Transaction] = db.scalars(
         select(Transaction).where(
             Transaction.occurred_at >= since,

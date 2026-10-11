@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.db.types import UTCDateTime, utcnow
 
-def utcnow() -> datetime:
-    """Naive UTC timestamp (portable across SQLite and PostgreSQL)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+__all__ = ["TimestampMixin", "utcnow"]
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, server_default=func.now(), nullable=False, index=True
+        UTCDateTime, default=utcnow, server_default=func.now(), nullable=False, index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, onupdate=utcnow, nullable=False
+        UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False
     )

@@ -7,6 +7,7 @@
  */
 import clsx from 'clsx'
 import {
+  BrainCircuit,
   Crosshair,
   ExternalLink,
   Filter,
@@ -42,7 +43,12 @@ import {
 import NetworkGraph, { GraphLegend } from '../graph/NetworkGraph.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import { useApi, useMutation } from '../hooks/useApi.js'
+import {
+  ALERTS_CHANGED_EVENT,
+  notifyAlertsChanged,
+  useApi,
+  useMutation,
+} from '../hooks/useApi.js'
 import { api } from '../services/api.js'
 import {
   entityLabel,
@@ -130,11 +136,91 @@ function ClusterList({ networks, selected, onSelect, loading }) {
   )
 }
 
+/* ------------------------------------------------- GraphSAGE verdict panel */
+
+function formatAmount(amount, currency) {
+  return currency === 'INR' ? formatInr(amount) : `${currency} ${formatNumber(amount, 2)}`
+}
+
+/** The trained GraphSAGE model's score for one account, and the transfers behind it. */
+function GraphSageVerdict({ accountRef }) {
+  const { data, error, loading } = useApi(
+    (signal) => api.gnnAccount(accountRef, signal),
+    [accountRef],
+    { enabled: Boolean(accountRef), refetchOn: ALERTS_CHANGED_EVENT },
+  )
+
+  return (
+    <div className="rounded border border-ink-700 bg-ink-900/60 p-2.5">
+      <h4 className="mb-1.5 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-slateish-400">
+        <BrainCircuit size={12} aria-hidden="true" /> GraphSAGE model (trained on IBM AMLworld)
+      </h4>
+      {loading && <Skeleton className="h-16" />}
+      {error && (
+        <p className="text-2xs text-slateish-400">
+          {error.status === 404
+            ? 'Not scored yet. Use "Run GNN scoring" once the model has been trained.'
+            : error.message}
+        </p>
+      )}
+      {data && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="tnum font-mono text-xs font-semibold text-slateish-100">
+              {(data.score * 100).toFixed(1)}%
+            </span>
+            <span className="text-2xs text-slateish-400">
+              threshold {(data.threshold * 100).toFixed(1)}%
+            </span>
+            <Chip tone={data.flagged ? 'high' : 'low'}>
+              {data.flagged ? 'flagged' : 'below threshold'}
+            </Chip>
+          </div>
+          <p className="text-[9.5px] text-slateish-400">
+            7-day neighbourhood of {data.window_nodes} accounts and {data.window_edges} transfers
+          </p>
+          {data.top_transfers.length > 0 ? (
+            <div>
+              <p className="mb-1 text-2xs font-medium text-slateish-300">
+                Score rests mainly on these transfers
+              </p>
+              <ul className="space-y-1">
+                {data.top_transfers.map((t) => (
+                  <li key={t.txn_ref} className="rounded bg-ink-950/60 px-2 py-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <Link
+                        to={`/transactions?search=${encodeURIComponent(t.txn_ref)}`}
+                        className="tnum font-mono text-[10px] font-semibold text-info hover:underline"
+                      >
+                        #{t.rank} {t.txn_ref}
+                      </Link>
+                      <span className="tnum font-mono text-[10px] text-risk-medium">
+                        -{(t.score_drop * 100).toFixed(1)} pts
+                      </span>
+                    </div>
+                    <p className="tnum font-mono text-[9.5px] text-slateish-400">
+                      {t.sender} → {t.receiver} · {formatAmount(t.amount, t.currency)} ·{' '}
+                      {formatDateTime(t.occurred_at)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-2xs text-slateish-400">No single transfer drives this score.</p>
+          )}
+          <p className="text-[9px] leading-snug text-slateish-500">{data.note}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------- node inspect panel */
 
 function NodePanel({ accountRef, hops, onClose, onFocus, focused }) {
   const { data, error, loading } = useApi(
-    () => api.inspectNode(accountRef, { hops: Number(hops) }),
+    (signal) => api.inspectNode(accountRef, { hops: Number(hops) }, signal),
     [accountRef, hops],
     { enabled: Boolean(accountRef) },
   )
@@ -187,8 +273,10 @@ function NodePanel({ accountRef, hops, onClose, onFocus, focused }) {
             <ScoreMeter
               score={data.node.gnn_node_score}
               level={data.node.risk_level}
-              label="GNN node score"
+              label="Structural graph score"
             />
+
+            <GraphSageVerdict accountRef={accountRef} />
 
             <div className="rounded border border-ink-700 bg-ink-900/60 p-2.5">
               <KeyValue label="Display name" value={data.node.label} />
@@ -392,7 +480,8 @@ function AssessmentPanel({ assessment, network }) {
 export default function NetworkPage() {
   const [params, setParams] = useSearchParams()
   const toast = useToast()
-  const { isAdmin } = useAuth()
+  const { can } = useAuth()
+  const canSweep = can('alerts:update')
 
   const [selectedNetwork, setSelectedNetwork] = useState(params.get('network') ?? '')
   const [accountSearch, setAccountSearch] = useState(params.get('account') ?? '')
@@ -417,6 +506,16 @@ export default function NetworkPage() {
     }
   }, [networks, selectedNetwork, exploreAccount])
 
+  // Only the inputs the active endpoint actually takes. A cluster graph ignores
+  // hops/risk/amount (those filter client-side below), so changing them must not
+  // refetch it.
+  const graphKey = JSON.stringify(
+    exploreAccount
+      ? ['account', exploreAccount, hops, minRisk, minAmount]
+      : selectedNetwork
+        ? ['network', selectedNetwork]
+        : ['overview', minRisk, minAmount],
+  )
   const graphQuery = useApi(
     (signal) => {
       if (exploreAccount) {
@@ -430,10 +529,10 @@ export default function NetworkPage() {
           signal,
         )
       }
-      if (selectedNetwork) return api.networkGraph(selectedNetwork)
+      if (selectedNetwork) return api.networkGraph(selectedNetwork, signal)
       return api.exploreGraph({ min_risk: Number(minRisk), min_amount: Number(minAmount) }, signal)
     },
-    [exploreAccount, selectedNetwork, hops, minRisk, minAmount],
+    [graphKey],
   )
 
   const graph = graphQuery.data
@@ -457,13 +556,41 @@ export default function NetworkPage() {
   const runAnalysis = useMutation(async () => {
     const result = await api.runNetworkAnalysis({ raise_alerts: true })
     toast.success(
-      `Detected ${result.networks_detected} cluster(s); ${result.suspicious} flagged, ${result.alerts_created} alert(s) raised.`,
+      `Detected ${result.clusters_detected} cluster(s), ${result.clusters_suspicious} flagged. ` +
+        (result.alerts_created > 0
+          ? `${result.alerts_created} new alert(s) raised; clusters already alerted were refreshed.`
+          : 'No new alerts; clusters already alerted were refreshed.'),
       { title: 'Graph analysis complete' },
     )
     networksQuery.reload()
     graphQuery.reload()
+    notifyAlertsChanged()
     return result
   })
+
+  const runGnn = useMutation(async () => {
+    const result = await api.runGnnScoring({ hours: 24 })
+    toast.success(
+      `${result.scored} account(s) active in the last 24h of activity scored; ${result.flagged} above the model's threshold.`,
+      { title: 'GraphSAGE scoring complete' },
+    )
+    notifyAlertsChanged()
+    return result
+  })
+
+  function startGnnScoring() {
+    runGnn.run().catch((err) => {
+      toast.error(err?.message ?? 'GNN scoring failed.', { title: 'GraphSAGE scoring failed' })
+    })
+  }
+
+  function startAnalysis() {
+    runAnalysis.run().catch((err) => {
+      toast.error(err?.message ?? 'The detection sweep failed.', {
+        title: 'Graph analysis failed',
+      })
+    })
+  }
 
   function investigateNetwork(ref) {
     setExploreAccount('')
@@ -504,15 +631,28 @@ export default function NetworkPage() {
         title="Financial Network Intelligence"
         subtitle="Graph construction → structural typology detection → GNN inference → suspicious nodes, edges and subgraphs. Findings are model-generated indicators requiring investigation."
       >
-        <Button
-          variant="secondary"
-          icon={RefreshCw}
-          loading={runAnalysis.pending}
-          onClick={() => runAnalysis.run().catch(() => {})}
-          title="Rebuild the graph, re-detect typologies and re-score with the GNN"
-        >
-          {runAnalysis.pending ? 'Analysing…' : 'Run detection sweep'}
-        </Button>
+        {canSweep && (
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={runAnalysis.pending}
+            onClick={startAnalysis}
+            title="Rebuild the graph, re-detect typologies and re-score with the GNN"
+          >
+            {runAnalysis.pending ? 'Analysing…' : 'Run detection sweep'}
+          </Button>
+        )}
+        {canSweep && (
+          <Button
+            variant="secondary"
+            icon={BrainCircuit}
+            loading={runGnn.pending}
+            onClick={startGnnScoring}
+            title="Score recently active accounts with the trained GraphSAGE model"
+          >
+            {runGnn.pending ? 'Scoring…' : 'Run GNN scoring'}
+          </Button>
+        )}
       </PageHeader>
 
       <div className="grid gap-3 xl:grid-cols-[270px_1fr_340px]">
@@ -615,7 +755,8 @@ export default function NetworkPage() {
                 <NetworkGraph
                   nodes={filteredNodes}
                   edges={filteredEdges}
-                  selectedNodeId={selectedNode}
+                  selectedNodeId={selectedNode ?? null}
+                  layoutKey={graphKey}
                   focusNeighboursOf={focusNeighbours ? selectedNode : null}
                   onNodeSelect={(node) => {
                     setSelectedNode(node.account_ref)

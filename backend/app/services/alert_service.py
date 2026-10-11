@@ -7,13 +7,15 @@ laundering pattern". No alert asserts that a customer is a money launderer.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from datetime import datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.models import Alert, Customer, Network, Transaction, User
 from app.models.enums import AlertSource, AlertStatus, Severity
 from app.services import audit_service
@@ -80,9 +82,11 @@ def create_alert(
     raised_at: Optional[datetime] = None,
     status: str = AlertStatus.NEW.value,
     assignee_id: Optional[int] = None,
+    dedupe_key: Optional[str] = None,
 ) -> Alert:
     alert = Alert(
         alert_ref=_new_ref(),
+        dedupe_key=dedupe_key,
         source=source,
         alert_type=alert_type,
         title=title,
@@ -98,7 +102,7 @@ def create_alert(
         severity=severity_for(risk_level),
         status=status,
         assignee_id=assignee_id,
-        raised_at=raised_at or datetime.utcnow(),
+        raised_at=raised_at or utcnow(),
     )
     db.add(alert)
 
@@ -108,6 +112,77 @@ def create_alert(
             customer.previous_alert_count = (customer.previous_alert_count or 0) + 1
             customer.under_monitoring = True
     return alert
+
+
+# ---------------------------------------------------------------------------
+# De-duplication for detectors that re-run over the same data
+# ---------------------------------------------------------------------------
+
+
+def dedupe_key_for(scope: str, subject: Any, pattern: str, evidence_refs: Iterable[str] = ()) -> str:
+    """Stable key for "the same finding".
+
+    `evidence_refs` (transaction refs, account refs) pin the key to the concrete
+    evidence; without them the key is per subject + pattern, i.e. at most one
+    live alert per customer per pattern.
+    """
+    refs = sorted({str(r) for r in evidence_refs if r})
+    digest = hashlib.sha1("|".join(refs).encode()).hexdigest()[:16] if refs else "any"
+    return f"{scope}:{subject}:{pattern}:{digest}"[:96]
+
+
+def upsert_alert(
+    db: Session,
+    dedupe_key: str,
+    suppress_after_close: Optional[timedelta] = None,
+    **fields: Any,
+) -> Tuple[Optional[Alert], bool]:
+    """Create an alert unless the same finding is already on file.
+
+    Returns `(alert, created)`:
+
+    * an open alert with this key exists -> it is refreshed in place (score,
+      explanation, evidence) and returned with `created=False`. Its status,
+      assignee and history are untouched, and no counters are bumped.
+    * the latest alert with this key was closed (CLEARED / CONFIRMED) -> an
+      analyst has already dispositioned this exact finding, so nothing is raised
+      (`(None, False)`). If `suppress_after_close` is given, the suppression only
+      lasts that long after closure; after that a fresh alert may be raised.
+    * no alert with this key -> a new one is created (`created=True`).
+    """
+    existing = db.scalar(
+        select(Alert)
+        .where(Alert.dedupe_key == dedupe_key)
+        .order_by(Alert.raised_at.desc(), Alert.id.desc())
+        .limit(1)
+    )
+
+    if existing is not None and existing.status not in _TERMINAL:
+        existing.risk_score = round(fields.get("risk_score", existing.risk_score), 1)
+        if "risk_level" in fields:
+            existing.risk_level = fields["risk_level"]
+            existing.severity = severity_for(fields["risk_level"])
+        for name in ("title", "explanation", "transaction_id", "account_id", "network_id"):
+            if fields.get(name) is not None:
+                setattr(existing, name, fields[name])
+        previous = existing.evidence or {}
+        evidence = dict(fields.get("evidence") or previous)
+        evidence["first_detected_at"] = previous.get(
+            "first_detected_at", existing.raised_at.isoformat() if existing.raised_at else None
+        )
+        evidence["last_detected_at"] = (fields.get("raised_at") or utcnow()).isoformat()
+        evidence["detection_count"] = int(previous.get("detection_count", 1)) + 1
+        existing.evidence = evidence
+        return existing, False
+
+    if existing is not None:
+        closed_at = existing.closed_at or existing.raised_at
+        if suppress_after_close is None or (
+            closed_at and utcnow() - closed_at < suppress_after_close
+        ):
+            return None, False
+
+    return create_alert(db=db, dedupe_key=dedupe_key, **fields), True
 
 
 def raise_proactive_alert(
@@ -178,7 +253,7 @@ def transition(
 
     alert.status = new_status
     if new_status in _TERMINAL:
-        alert.closed_at = datetime.utcnow()
+        alert.closed_at = utcnow()
         if note:
             alert.disposition_note = note
     else:

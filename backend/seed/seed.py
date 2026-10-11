@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.db.base import Base, SessionLocal, engine, init_db  # noqa: E402
+from app.db.types import utcnow  # noqa: E402
 from app.models import (  # noqa: E402
     Account,
     Alert,
@@ -53,8 +54,10 @@ from app.ml.features import FeatureBundle  # noqa: E402
 from app.ml.registry import get_proactive_model  # noqa: E402
 from app.rules.engine import evaluate, load_rules, sync_rule_catalogue  # noqa: E402
 from app.services import (  # noqa: E402
+    account_stats_service,
     audit_service,
     feature_service,
+    gnn_v2_service,
     integrity_service,
     investigation_service,
     network_service,
@@ -384,7 +387,7 @@ def seed_counterparties(db: Session) -> int:
     log("building counterparty relationships")
     customers: Sequence[Customer] = db.scalars(select(Customer)).all()
     created = 0
-    now = datetime.utcnow()
+    now = utcnow()
 
     for customer in customers:
         owned = {a.id for a in customer.accounts}
@@ -534,7 +537,7 @@ def seed_risk_history(
     """Write 8 weekly proactive assessments so trajectories are real history."""
     archetype = ARCHETYPE_BY_KEY.get(customer.seed_archetype)
     escalating = bool(archetype and archetype.escalates)
-    now = datetime.utcnow()
+    now = utcnow()
 
     for week in range(8):
         # Oldest first; scale the amount signal to reproduce the trajectory
@@ -664,6 +667,25 @@ def seed_detection(db: Session, users: Dict[str, User]) -> Dict[str, int]:
     network_alerts = network_service.raise_network_alerts(db, networks)
     db.flush()
     log(f"  network layer raised {len(network_alerts)} alert(s)")
+
+    started = time.perf_counter()
+    stats_rows = account_stats_service.refresh(db)
+    db.flush()
+    log(
+        f"  account stats store: {stats_rows} active account(s) "
+        f"in {time.perf_counter() - started:.1f}s"
+    )
+
+    if gnn_v2_service.get_model() is not None:
+        started = time.perf_counter()
+        scored = gnn_v2_service.score_recent(db, hours=72)
+        db.flush()
+        log(
+            f"  window GNN (AMLworld-trained GraphSAGE): {scored['scored']} account(s) scored, "
+            f"{scored['flagged']} flagged in {time.perf_counter() - started:.1f}s"
+        )
+    else:
+        log("  window GNN not trained yet - skipped (run python -m app.gnn.r3)")
 
     # Assign a share of alerts and open investigations on the most severe
     analyst = users["analyst"]
@@ -818,7 +840,7 @@ def seed_database(
         log(f"seeded {created} AML rules into the rules engine")
 
         gen = Generator(seed=seed_value)
-        now = datetime.utcnow()
+        now = utcnow()
 
         context = seed_entities(db, gen, profile, now)
         db.commit()

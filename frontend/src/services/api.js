@@ -115,6 +115,8 @@ async function request(path, { method = 'GET', body, params, signal } = {}) {
 const get = (path, params, signal) => request(path, { params, signal })
 const post = (path, body, params) => request(path, { method: 'POST', body, params })
 const patch = (path, body) => request(path, { method: 'PATCH', body })
+/** Path segment from user/data input (refs, search text) - never raw. */
+const seg = (value) => encodeURIComponent(String(value))
 
 export const api = {
   // --- auth ---------------------------------------------------------
@@ -123,7 +125,7 @@ export const api = {
   logout: () => post('/auth/logout'),
   listUsers: () => get('/auth/users'),
   createUser: (payload) => post('/auth/users', payload),
-  updateUser: (username, payload) => patch(`/auth/users/${username}`, payload),
+  updateUser: (username, payload) => patch(`/auth/users/${seg(username)}`, payload),
 
   // --- dashboard ----------------------------------------------------
   dashboard: (window, signal) => get('/dashboard/overview', { window }, signal),
@@ -132,54 +134,61 @@ export const api = {
 
   // --- transactions -------------------------------------------------
   transactions: (params, signal) => get('/transactions', params, signal),
-  transaction: (ref) => get(`/transactions/${ref}`),
-  orders: (params) => get('/transactions/orders', params),
+  transaction: (ref, signal) => get(`/transactions/${seg(ref)}`, undefined, signal),
+  orders: (params, signal) => get('/transactions/orders', params, signal),
   validatePayment: (payload) => post('/transactions/validate', payload),
   analyzeTransaction: (payload) => post('/transactions/analyze', payload),
   gatewayDecision: (payload) => post('/transactions/decision', payload),
 
   // --- customers ----------------------------------------------------
   customers: (params, signal) => get('/customers', params, signal),
-  customer: (ref) => get(`/customers/${ref}`),
-  customerRisk: (ref) => get(`/customers/${ref}/risk`),
-  proactiveOverview: (params) => get('/customers/proactive-overview', params),
+  customer: (ref, signal) => get(`/customers/${seg(ref)}`, undefined, signal),
+  customerRisk: (ref, signal) => get(`/customers/${seg(ref)}/risk`, undefined, signal),
+  proactiveOverview: (params, signal) => get('/customers/proactive-overview', params, signal),
 
   // --- alerts / reactive --------------------------------------------
   alerts: (params, signal) => get('/alerts', params, signal),
-  alert: (ref) => get(`/alerts/${ref}`),
-  alertStats: () => get('/alerts/stats'),
-  updateAlertStatus: (ref, payload) => patch(`/alerts/${ref}/status`, payload),
+  alert: (ref, signal) => get(`/alerts/${seg(ref)}`, undefined, signal),
+  alertStats: (signal) => get('/alerts/stats', undefined, signal),
+  updateAlertStatus: (ref, payload) => patch(`/alerts/${seg(ref)}/status`, payload),
   assignAlert: (ref, assignee_username) =>
-    post(`/alerts/${ref}/assign`, { assignee_username }),
-  reactiveOverview: (params) => get('/reactive/overview', params),
+    post(`/alerts/${seg(ref)}/assign`, { assignee_username }),
+  reactiveOverview: (params, signal) => get('/reactive/overview', params, signal),
   runReactiveSweep: (params) => post('/reactive/run', undefined, params),
 
   // --- networks / GNN -----------------------------------------------
   networks: (params, signal) => get('/networks', params, signal),
-  network: (ref) => get(`/networks/${ref}`),
-  networkGraph: (ref) => get(`/networks/${ref}/graph`),
-  networkAssessment: (ref) => get(`/networks/${ref}/assessment`),
+  network: (ref, signal) => get(`/networks/${seg(ref)}`, undefined, signal),
+  networkGraph: (ref, signal) => get(`/networks/${seg(ref)}/graph`, undefined, signal),
+  networkAssessment: (ref, signal) =>
+    get(`/networks/${seg(ref)}/assessment`, undefined, signal),
   exploreGraph: (params, signal) => get('/networks/graph', params, signal),
-  inspectNode: (accountRef, params) => get(`/networks/node/${accountRef}`, params),
+  inspectNode: (accountRef, params, signal) =>
+    get(`/networks/node/${seg(accountRef)}`, params, signal),
   runNetworkAnalysis: (params) => post('/networks/analyse', undefined, params),
+  // Window GNN (GraphSAGE trained on IBM AMLworld)
+  gnnStatus: (signal) => get('/networks/gnn/status', undefined, signal),
+  runGnnScoring: (params) => post('/networks/gnn/score', undefined, params),
+  gnnAccount: (accountRef, signal) =>
+    get(`/networks/gnn/accounts/${seg(accountRef)}`, undefined, signal),
 
   // --- investigations -----------------------------------------------
   investigations: (params, signal) => get('/investigations', params, signal),
-  investigation: (ref) => get(`/investigations/${ref}`),
+  investigation: (ref, signal) => get(`/investigations/${seg(ref)}`, undefined, signal),
   createInvestigation: (payload) => post('/investigations', payload),
-  addInvestigationNote: (ref, payload) => post(`/investigations/${ref}/notes`, payload),
+  addInvestigationNote: (ref, payload) => post(`/investigations/${seg(ref)}/notes`, payload),
   updateInvestigationStatus: (ref, payload) =>
-    patch(`/investigations/${ref}/status`, payload),
+    patch(`/investigations/${seg(ref)}/status`, payload),
   assignInvestigation: (ref, assignee_username) =>
-    post(`/investigations/${ref}/assign`, { assignee_username }),
+    post(`/investigations/${seg(ref)}/assign`, { assignee_username }),
 
   // --- rules --------------------------------------------------------
-  rules: (params) => get('/rules', params),
-  updateRule: (code, payload) => patch(`/rules/${code}`, payload),
+  rules: (params, signal) => get('/rules', params, signal),
+  updateRule: (code, payload) => patch(`/rules/${seg(code)}`, payload),
   createRule: (payload) => post('/rules', payload),
 
   // --- models / audit / demo ----------------------------------------
-  modelInsights: () => get('/models/insights'),
+  modelInsights: (signal) => get('/models/insights', undefined, signal),
   auditLogs: (params, signal) => get('/audit-logs', params, signal),
   auditFacets: () => get('/audit-logs/actions'),
   demoScenarios: () => get('/demo/scenarios'),

@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Optional
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -26,6 +27,9 @@ class Alert(Base, TimestampMixin):
     explanation: Mapped[str] = mapped_column(Text, default="")
     evidence: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, default=dict)
     rule_code: Mapped[Optional[str]] = mapped_column(String(48), index=True)
+    # Identifies "the same finding" across detection sweeps, so a re-run refreshes
+    # the existing alert instead of raising a duplicate. NULL for one-off alerts.
+    dedupe_key: Mapped[Optional[str]] = mapped_column(String(96), nullable=True, index=True)
 
     customer_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("customers.id"), nullable=True, index=True
@@ -48,8 +52,8 @@ class Alert(Base, TimestampMixin):
     assignee_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
-    raised_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    raised_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     disposition_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     customer: Mapped[Optional["Customer"]] = relationship(

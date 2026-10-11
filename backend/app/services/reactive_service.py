@@ -108,7 +108,7 @@ def detect_unusual_amount(
         explanation=(
             f"Transaction {largest.txn_ref} moved {_fmt_inr(largest.amount)}, which is "
             f"{ratio:.1f}x this customer's established average of {_fmt_inr(baseline)}. "
-            f"The transaction settled on {largest.occurred_at:%d %b %Y at %H:%M} via "
+            f"The transaction settled on {largest.occurred_at:%d %b %Y at %H:%M %Z} via "
             f"{largest.channel}. An amount this far outside a customer's own pattern is "
             "a standard AML review trigger and requires investigation to establish "
             "whether there is a legitimate explanation."
@@ -157,7 +157,7 @@ def detect_high_velocity(
         explanation=(
             f"{len(best_window)} transactions totalling {_fmt_inr(total)} settled inside "
             f"a {minutes:.0f}-minute window starting "
-            f"{best_window[0].occurred_at:%d %b %Y %H:%M}. This exceeds the configured "
+            f"{best_window[0].occurred_at:%d %b %Y %H:%M %Z}. This exceeds the configured "
             f"velocity threshold of {threshold_per_hour:.0f} transactions per hour. "
             "Activity compressed this tightly is often automated rather than manual and "
             "warrants investigation."
@@ -306,11 +306,21 @@ def run_monitoring_sweep(
     create_alerts: bool = True,
     reference_time: Optional[datetime] = None,
 ) -> List[Alert]:
-    """Score settled activity for each customer and raise reactive alerts."""
-    rules = load_rules(db, layer="REACTIVE") + load_rules(db, layer="PROACTIVE")
+    """Score settled activity for each customer and raise reactive alerts.
+
+    Idempotent: a finding that is already on file (same customer, pattern and
+    evidence) refreshes the existing open alert instead of raising a duplicate,
+    and a finding an analyst has already closed is not re-raised. Only newly
+    created alerts are returned, and only they bump rule trigger counts and the
+    customer's prior-alert count.
+    """
+    reactive_rules = load_rules(db, layer="REACTIVE")
+    rules = reactive_rules + load_rules(db, layer="PROACTIVE")
     thresholds = {rule.code: float(rule.threshold) for rule in rules}
 
-    targets: Sequence[Customer] = customers or db.scalars(select(Customer)).all()
+    targets: Sequence[Customer] = (
+        customers if customers is not None else db.scalars(select(Customer)).all()
+    )
     created: List[Alert] = []
 
     for customer in targets:
@@ -322,9 +332,7 @@ def run_monitoring_sweep(
             db, customer, reference_time=reference_time
         )
         metrics = feature_service.rule_metrics(bundle)
-        hits: List[RuleHit] = evaluate(
-            load_rules(db, layer="REACTIVE"), metrics, increment_counts=True
-        )
+        hits: List[RuleHit] = evaluate(reactive_rules, metrics)
 
         detections: List[Detection] = []
         for detection in (
@@ -355,7 +363,22 @@ def run_monitoring_sweep(
         if not detections:
             continue
 
-        # A reactive assessment is recorded whether or not alerts are created
+        new_for_customer: List[Alert] = []
+        if create_alerts:
+            for detection in detections:
+                alert, is_new = _raise_or_refresh(db, customer, detection, reference_time)
+                if is_new and alert is not None:
+                    new_for_customer.append(alert)
+
+        if create_alerts and not new_for_customer:
+            # Every finding was already on file - nothing new to assess or count
+            continue
+
+        fired = {hit.code for hit in hits}
+        for rule in reactive_rules:
+            if rule.code in fired:
+                rule.triggered_count = (rule.triggered_count or 0) + 1
+
         result = risk_service.score(bundle, hits, explain=True)
         risk_service.persist_assessment(
             db=db,
@@ -368,45 +391,56 @@ def run_monitoring_sweep(
                 + ", ".join(d.code for d in detections)
             ),
         )
-
-        if not create_alerts:
-            continue
-
-        for detection in detections:
-            level = settings.risk_level_for(detection.severity_score)
-            alert = alert_service.create_alert(
-                db=db,
-                source=AlertSource.REACTIVE.value,
-                alert_type=detection.code,
-                title=f"{detection.name} - {customer.name} ({customer.customer_ref})",
-                explanation=detection.explanation,
-                risk_score=detection.severity_score,
-                risk_level=level,
-                customer_id=customer.id,
-                transaction_id=detection.transaction_id,
-                rule_code=detection.rule_code,
-                evidence={
-                    "headline": detection.headline,
-                    "metrics": detection.metrics,
-                    "transaction_refs": detection.transaction_refs,
-                    "layer": "REACTIVE (post-settlement monitoring)",
-                    "pattern_code": detection.code,
-                },
-                raised_at=reference_time,
-            )
-            created.append(alert)
-
-            # Mark the implicated transactions
-            if detection.transaction_refs:
-                rows = db.scalars(
-                    select(Transaction).where(
-                        Transaction.txn_ref.in_(detection.transaction_refs)
-                    )
-                ).all()
-                for row in rows:
-                    row.has_alert = True
+        created.extend(new_for_customer)
 
     return created
+
+
+def _raise_or_refresh(
+    db: Session,
+    customer: Customer,
+    detection: Detection,
+    reference_time: Optional[datetime],
+) -> tuple[Optional[Alert], bool]:
+    """Upsert one detection as an alert; mark its transactions when new."""
+    # Patterns without concrete transaction evidence (counterparty growth,
+    # behavioural drift) are customer-level: one live alert per customer per
+    # pattern, and a closed one may be re-raised after a full review window.
+    customer_level = not detection.transaction_refs
+    alert, is_new = alert_service.upsert_alert(
+        db,
+        dedupe_key=alert_service.dedupe_key_for(
+            "REACTIVE", customer.id, detection.code, detection.transaction_refs
+        ),
+        suppress_after_close=(
+            timedelta(days=DEFAULT_WINDOW_DAYS) if customer_level else None
+        ),
+        source=AlertSource.REACTIVE.value,
+        alert_type=detection.code,
+        title=f"{detection.name} - {customer.name} ({customer.customer_ref})",
+        explanation=detection.explanation,
+        risk_score=detection.severity_score,
+        risk_level=settings.risk_level_for(detection.severity_score),
+        customer_id=customer.id,
+        transaction_id=detection.transaction_id,
+        rule_code=detection.rule_code,
+        evidence={
+            "headline": detection.headline,
+            "metrics": detection.metrics,
+            "transaction_refs": detection.transaction_refs,
+            "layer": "REACTIVE (post-settlement monitoring)",
+            "pattern_code": detection.code,
+        },
+        raised_at=reference_time,
+    )
+
+    if is_new and detection.transaction_refs:
+        rows = db.scalars(
+            select(Transaction).where(Transaction.txn_ref.in_(detection.transaction_refs))
+        ).all()
+        for row in rows:
+            row.has_alert = True
+    return alert, is_new
 
 
 def build_pattern_cards(db: Session, limit: int = 40) -> List[Dict[str, Any]]:

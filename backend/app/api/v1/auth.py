@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,6 +13,7 @@ from app.core.deps import get_actor, get_current_user, require_admin
 from app.core.security import hash_password, permissions_for, verify_password
 from app.core.security import create_access_token
 from app.db.base import get_db
+from app.db.types import utcnow
 from app.models import User
 from app.schemas.auth import (
     LoginRequest,
@@ -62,7 +63,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         )
 
     token, expires_at = create_access_token(subject=user.username, role=user.role)
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utcnow()
 
     audit_service.record(
         db,

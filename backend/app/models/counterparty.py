@@ -9,10 +9,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -30,8 +31,8 @@ class Counterparty(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(128))
     relationship_type: Mapped[str] = mapped_column(String(24), default="BENEFICIARY")
 
-    first_seen_at: Mapped[datetime] = mapped_column(DateTime, index=True)
-    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    first_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime)
     txn_count: Mapped[int] = mapped_column(Integer, default=0)
     total_amount: Mapped[float] = mapped_column(Float, default=0.0)
     # True while first_seen_at is inside the new-beneficiary window (30 days)

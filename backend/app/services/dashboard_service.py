@@ -14,6 +14,7 @@ from sqlalchemy import Float, case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.types import utcnow
 from app.models import Alert, Customer, Investigation, Network, Transaction
 from app.models.enums import AlertStatus
 from app.services import alert_service, investigation_service, network_service
@@ -74,7 +75,7 @@ REGION_BY_CITY: Dict[str, str] = {
 
 
 def _window_bounds(window: str, now: Optional[datetime] = None) -> Tuple[datetime, datetime, timedelta]:
-    reference = now or datetime.utcnow()
+    reference = now or utcnow()
     span = WINDOWS.get(window.upper(), WINDOWS["7D"])
     return reference - span, reference, span
 
@@ -518,7 +519,10 @@ def pipeline_health(db: Session, window: str, now: Optional[datetime] = None) ->
         {
             "stage": "Graph + GNN",
             "layer": "NETWORK",
-            "throughput": int(db.scalar(select(func.count(Network.id))) or 0),
+            "throughput": int(
+                db.scalar(select(func.count(Network.id)).where(Network.is_active.is_(True)))
+                or 0
+            ),
             "flagged": network_service.suspicious_count(db),
             "engine": engine.architecture,
             "trained": engine.trained,
@@ -531,7 +535,7 @@ def build_overview(db: Session, window: str = "7D", now: Optional[datetime] = No
     normalised = window.upper() if window.upper() in WINDOWS else "7D"
     return {
         "window": normalised,
-        "generated_at": now or datetime.utcnow(),
+        "generated_at": now or utcnow(),
         "kpis": build_kpis(db, normalised, now),
         "risk_distribution": risk_distribution(db, normalised, now),
         "series": time_series(db, normalised, now),

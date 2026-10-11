@@ -20,9 +20,30 @@ PROJECT_ROOT = BACKEND_ROOT.parent
 
 
 def _default_sqlite_url() -> str:
-    db_dir = PROJECT_ROOT / "database"
-    db_dir.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{(db_dir / 'aml.db').as_posix()}"
+    # Defaults are not validated, so normalise here too (creates the folder)
+    return _normalise_sqlite_url(
+        f"sqlite:///{(PROJECT_ROOT / 'database' / 'aml.db').as_posix()}"
+    )
+
+
+def _normalise_sqlite_url(url: str) -> str:
+    """Anchor a relative SQLite path to `backend/` and make sure its folder exists.
+
+    A relative `sqlite:///../database/aml.db` would otherwise resolve against
+    whatever directory uvicorn or the seed was launched from, silently creating
+    (or failing to open) a different database each time.
+    """
+    prefix = "sqlite:///"
+    if not url.startswith(prefix):
+        return url
+    raw = url[len(prefix):]
+    if not raw or raw == ":memory:" or raw.startswith("file:"):
+        return url
+    path = Path(raw)
+    if not path.is_absolute():
+        path = (BACKEND_ROOT / path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return f"{prefix}{path.as_posix()}"
 
 
 class Settings(BaseSettings):
@@ -49,7 +70,10 @@ class Settings(BaseSettings):
     bcrypt_rounds: int = 12
 
     # --- CORS -------------------------------------------------------------
-    cors_origins: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # Kept as a plain comma-separated string: a List[str] field makes
+    # pydantic-settings JSON-decode the env value before any validator runs,
+    # which crashes on the comma-separated form documented in .env.example.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # --- Risk thresholds (0-100) -----------------------------------------
     risk_threshold_medium: int = 35
@@ -61,12 +85,14 @@ class Settings(BaseSettings):
     gnn_model_path: str = "app/gnn/artifacts/aml_gnn.pt"
     gnn_engine: str = "auto"
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("database_url", mode="after")
     @classmethod
-    def _split_origins(cls, value):
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+    def _anchor_sqlite_path(cls, value: str) -> str:
+        return _normalise_sqlite_url(value)
+
+    @property
+    def cors_origin_list(self) -> List[str]:
+        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
     @property
     def is_production(self) -> bool:

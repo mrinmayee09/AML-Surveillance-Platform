@@ -78,7 +78,7 @@ function Caveats({ items }) {
 }
 
 export default function ModelInsightsPage() {
-  const { data, error, loading, reload } = useApi(() => api.modelInsights(), [])
+  const { data, error, loading, reload } = useApi((signal) => api.modelInsights(signal), [])
 
   if (error) return <ErrorState error={error} onRetry={reload} />
 

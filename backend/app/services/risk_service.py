@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.types import utcnow
 from app.ml.features import FEATURE_BY_NAME, FeatureBundle
 from app.ml.model import Attribution, Prediction, ProactiveRiskModel, positive_attributions
 from app.ml.registry import get_proactive_model
@@ -206,7 +207,7 @@ def determine_trend(
     db: Session, customer: Customer, new_score: float, lookback_days: int = 45
 ) -> str:
     """Compare against the customer's own recent history."""
-    cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+    cutoff = utcnow() - timedelta(days=lookback_days)
     previous: Sequence[RiskAssessment] = db.scalars(
         select(RiskAssessment)
         .where(
@@ -311,7 +312,7 @@ def persist_assessment(
         customer_id=customer.id if customer else None,
         transaction_id=transaction_id,
         network_id=network_id,
-        assessed_at=assessed_at or datetime.utcnow(),
+        assessed_at=assessed_at or utcnow(),
         risk_score=result.score,
         risk_level=result.level,
         trend=result.trend,

@@ -189,7 +189,7 @@ function IntegrityPanel({ integrity }) {
 export default function GatewayPage() {
   const toast = useToast()
   const { data: orders, loading: ordersLoading, error: ordersError, reload } = useApi(
-    () => api.orders({ status: 'AWAITING_PAYMENT', limit: 40 }),
+    (signal) => api.orders({ status: 'AWAITING_PAYMENT', limit: 40 }, signal),
     [],
   )
 

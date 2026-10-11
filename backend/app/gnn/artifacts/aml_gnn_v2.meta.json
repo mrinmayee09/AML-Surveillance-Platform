@@ -1,0 +1,156 @@
+{
+  "model_name": "aml_gnn_edge",
+  "variant": "edge",
+  "config": {
+    "node_dim": 19,
+    "edge_dim": 20,
+    "hidden": 64,
+    "layers": 3
+  },
+  "schema": {
+    "version": "2.1",
+    "include_profile": false,
+    "reference_currency": "USD",
+    "reporting_threshold": 10000.0,
+    "structuring_band": [
+      0.8,
+      0.999
+    ]
+  },
+  "window": {
+    "days": 7,
+    "hops": 3,
+    "max_nodes": 300,
+    "max_edges": 4000,
+    "hub_partner_limit": 50
+  },
+  "threshold": 0.9782187342643738,
+  "metrics": {
+    "val": {
+      "pr_auc": 0.2281767930292433,
+      "roc_auc": 0.955398216063049,
+      "precision": 0.21357615894039736,
+      "recall": 0.32209737827715357,
+      "f1": 0.25684420109507217,
+      "threshold": 0.9782187342643738,
+      "alert_rate": 0.0053994618356227875,
+      "base_rate": 0.0035802721977233887,
+      "windows": 10519,
+      "positives": 1602
+    },
+    "test": {
+      "pr_auc": 0.22750904318894394,
+      "roc_auc": 0.9533635255025846,
+      "precision": 0.2047713717693837,
+      "recall": 0.3056379821958457,
+      "f1": 0.24523809523809523,
+      "threshold": 0.9782187342643738,
+      "alert_rate": 0.004915819503366947,
+      "base_rate": 0.0032935014460235834,
+      "windows": 16637,
+      "positives": 2359,
+      "recall_by_typology": {
+        "FAN-OUT": {
+          "recall": 0.448,
+          "support": 125
+        },
+        "CYCLE": {
+          "recall": 0.47794117647058826,
+          "support": 136
+        },
+        "GATHER-SCATTER": {
+          "recall": 0.497907949790795,
+          "support": 239
+        },
+        "STACK": {
+          "recall": 0.2691029900332226,
+          "support": 301
+        },
+        "RANDOM": {
+          "recall": 0.52,
+          "support": 75
+        },
+        "BIPARTITE": {
+          "recall": 0.11904761904761904,
+          "support": 126
+        },
+        "FAN-IN": {
+          "recall": 0.4426229508196721,
+          "support": 122
+        },
+        "SCATTER-GATHER": {
+          "recall": 0.5779816513761468,
+          "support": 218
+        }
+      }
+    }
+  },
+  "training_data": "IBM AMLworld HI-Small_Trans.csv up to 2022-09-10",
+  "selection": {
+    "variant": "edge",
+    "rule": "highest mean validation PR-AUC across seeds; test split not used",
+    "checkpoint": "C:\\Users\\mrinm\\Downloads\\AML-Surveillance-Platform-main\\AML-Surveillance-Platform-main\\data\\amlworld\\r2\\r3_gnn_edge-f9891ab2a291.pt"
+  },
+  "ablation": {
+    "seed-only": {
+      "test_pr_auc": {
+        "mean": 0.04937498269904457,
+        "std": 0.0011325379111032283
+      },
+      "val_pr_auc": {
+        "mean": 0.05546169645335861,
+        "std": 0.0019979557886246027
+      }
+    },
+    "seed+context": {
+      "test_pr_auc": {
+        "mean": 0.13728264827758802,
+        "std": 0.02058505672479328
+      },
+      "val_pr_auc": {
+        "mean": 0.11983525365595597,
+        "std": 0.01346895307648439
+      }
+    },
+    "logistic": {
+      "test_pr_auc": {
+        "mean": 0.06247455904096428,
+        "std": 0.0
+      },
+      "val_pr_auc": {
+        "mean": 0.0639023260856486,
+        "std": 0.0
+      }
+    },
+    "plain": {
+      "test_pr_auc": {
+        "mean": 0.028784369372385477,
+        "std": 0.007759544559615947
+      },
+      "val_pr_auc": {
+        "mean": 0.05162759964772673,
+        "std": 0.008475835711241171
+      }
+    },
+    "directed": {
+      "test_pr_auc": {
+        "mean": 0.04150002976394386,
+        "std": 0.008814432242831072
+      },
+      "val_pr_auc": {
+        "mean": 0.07486297802037536,
+        "std": 0.006178146733015662
+      }
+    },
+    "edge": {
+      "test_pr_auc": {
+        "mean": 0.18329508377745957,
+        "std": 0.02376347188145873
+      },
+      "val_pr_auc": {
+        "mean": 0.20192208485915222,
+        "std": 0.021794409612679137
+      }
+    }
+  }
+}

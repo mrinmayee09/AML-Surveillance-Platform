@@ -10,10 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, String
+from sqlalchemy import JSON, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.types import UTCDateTime
 from app.models.base_mixins import TimestampMixin
 
 
@@ -34,7 +35,7 @@ class RiskAssessment(Base, TimestampMixin):
         ForeignKey("networks.id"), nullable=True, index=True
     )
 
-    assessed_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    assessed_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
     risk_score: Mapped[float] = mapped_column(Float)
     risk_level: Mapped[str] = mapped_column(String(16), index=True)
     trend: Mapped[str] = mapped_column(String(16), default="STABLE")

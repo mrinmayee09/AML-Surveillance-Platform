@@ -66,11 +66,23 @@ export function formatMultiple(value, decimals = 1) {
 // Dates
 // ---------------------------------------------------------------------------
 
-function toDate(value) {
+// ISO date-time with no zone designator ("2026-10-04T04:40:00").
+const ZONELESS_DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+
+/**
+ * Parse an API timestamp. The backend sends UTC with an explicit offset; a
+ * zone-less string (older stored evidence, legacy rows) is also UTC, so it is
+ * never read as the viewer's local time. Display is in the viewer's local zone.
+ */
+export function toDate(value) {
   if (!value) return null
   if (value instanceof Date) return value
   try {
-    const parsed = typeof value === 'string' ? parseISO(value) : new Date(value)
+    const text = typeof value === 'string' ? value.trim() : null
+    const parsed =
+      text !== null
+        ? parseISO(ZONELESS_DATETIME.test(text) ? `${text.replace(' ', 'T')}Z` : text)
+        : new Date(value)
     return Number.isNaN(parsed.getTime()) ? null : parsed
   } catch {
     return null
@@ -90,6 +102,19 @@ export function formatDate(value) {
 export function formatTime(value) {
   const date = toDate(value)
   return date ? format(date, 'HH:mm:ss') : '—'
+}
+
+/** Short name of the viewer's time zone, e.g. "IST", for labelling displayed times. */
+export function localZoneName(date = new Date()) {
+  try {
+    return (
+      new Intl.DateTimeFormat('en-IN', { timeZoneName: 'short' })
+        .formatToParts(date)
+        .find((part) => part.type === 'timeZoneName')?.value ?? ''
+    )
+  } catch {
+    return ''
+  }
 }
 
 export function formatRelative(value) {

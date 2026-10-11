@@ -97,8 +97,8 @@ function BehaviourStats({ behaviour }) {
 export default function CustomerDetailPage() {
   const { customerRef } = useParams()
 
-  const profile = useApi(() => api.customer(customerRef), [customerRef])
-  const risk = useApi(() => api.customerRisk(customerRef), [customerRef])
+  const profile = useApi((signal) => api.customer(customerRef, signal), [customerRef])
+  const risk = useApi((signal) => api.customerRisk(customerRef, signal), [customerRef])
   const alerts = useApi(
     (signal) => api.alerts({ customer_ref: customerRef, page_size: 12 }, signal),
     [customerRef],

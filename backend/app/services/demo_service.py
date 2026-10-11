@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime
+
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.db.types import utcnow
 from app.models import (
     Account,
     Alert,
@@ -130,7 +131,7 @@ def run_demo(
         scenario = "LAYERED_RING"
 
     run_ref = f"DEMO-{uuid.uuid4().hex[:8].upper()}"
-    started_at = datetime.utcnow()
+    started_at = utcnow()
     rec = _Recorder()
 
     tampering = scenario == "TAMPERED_AMOUNT"
@@ -148,7 +149,7 @@ def run_demo(
             "run_ref": run_ref,
             "scenario": scenario,
             "started_at": started_at,
-            "finished_at": datetime.utcnow(),
+            "finished_at": utcnow(),
             "steps": rec.steps,
             "outcome": {"status": "ABORTED", "reason": "no payable order"},
             "advisory": DEMO_ADVISORY,
@@ -244,7 +245,7 @@ def run_demo(
             "run_ref": run_ref,
             "scenario": scenario,
             "started_at": started_at,
-            "finished_at": datetime.utcnow(),
+            "finished_at": utcnow(),
             "steps": rec.steps,
             "outcome": {
                 "status": "BLOCKED_AT_INTEGRITY",
@@ -435,19 +436,42 @@ def run_demo(
     elif decision.alert_ref:
         anchor_alert = db.scalar(select(Alert).where(Alert.alert_ref == decision.alert_ref))
 
+    # Detection is idempotent, so a repeat walkthrough re-detects findings that
+    # are already on file instead of raising new ones. Pick up the strongest of
+    # those that is still untouched (NEW), so the case-handling steps still run.
+    reused_existing = False
+    if anchor_alert is None:
+        network_ids = [n.id for n in suspicious if n.id is not None]
+        anchor_alert = db.scalar(
+            select(Alert)
+            .where(
+                Alert.status == AlertStatus.NEW.value,
+                (Alert.customer_id == customer.id) | Alert.network_id.in_(network_ids),
+            )
+            .order_by(Alert.risk_score.desc())
+            .limit(1)
+        )
+        reused_existing = anchor_alert is not None
+
     rec.add(
         "alert",
         "Alert created",
         "NETWORK",
         "WARN" if anchor_alert else "PASS",
         (
-            f"Alert {anchor_alert.alert_ref} raised: {anchor_alert.title}"
+            (
+                f"No new finding - alert {anchor_alert.alert_ref} is already on file "
+                f"for this activity and was refreshed: {anchor_alert.title}"
+                if reused_existing
+                else f"Alert {anchor_alert.alert_ref} raised: {anchor_alert.title}"
+            )
             if anchor_alert
             else "No alert was raised by this run."
         ),
         {
             "network_alerts": [a.alert_ref for a in network_alerts],
             "anchor_alert_ref": anchor_alert.alert_ref if anchor_alert else None,
+            "reused_existing_alert": reused_existing,
             "risk_score": anchor_alert.risk_score if anchor_alert else None,
         },
         route="/alerts",
@@ -459,7 +483,7 @@ def run_demo(
             "run_ref": run_ref,
             "scenario": scenario,
             "started_at": started_at,
-            "finished_at": datetime.utcnow(),
+            "finished_at": utcnow(),
             "steps": rec.steps,
             "outcome": {
                 "status": "COMPLETED_NO_ALERT",
@@ -609,7 +633,7 @@ def run_demo(
         "run_ref": run_ref,
         "scenario": scenario,
         "started_at": started_at,
-        "finished_at": datetime.utcnow(),
+        "finished_at": utcnow(),
         "steps": rec.steps,
         "outcome": {
             "status": "COMPLETED",

@@ -34,7 +34,7 @@ import {
 } from '../components/ui.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 import { useToast } from '../context/ToastContext.jsx'
-import { useApi, useMutation } from '../hooks/useApi.js'
+import { notifyAlertsChanged, useApi, useMutation } from '../hooks/useApi.js'
 import { api } from '../services/api.js'
 import { formatDateTime, formatInr, humanise } from '../utils/format.js'
 
@@ -51,7 +51,10 @@ export default function AlertDetailPage() {
   const toast = useToast()
   const { can } = useAuth()
 
-  const { data, error, loading, reload } = useApi(() => api.alert(alertRef), [alertRef])
+  const { data, error, loading, reload } = useApi(
+    (signal) => api.alert(alertRef, signal),
+    [alertRef],
+  )
   const users = useApi(() => api.listUsers(), [], { enabled: can('users:manage') })
 
   const [noteModal, setNoteModal] = useState(null) // { status, label }
@@ -65,6 +68,7 @@ export default function AlertDetailPage() {
     setNoteModal(null)
     setNote('')
     reload()
+    notifyAlertsChanged()
   })
 
   const assign = useMutation(async (username) => {
@@ -72,6 +76,7 @@ export default function AlertDetailPage() {
     toast.success(`Assigned to ${username}.`)
     setAssignModal(false)
     reload()
+    notifyAlertsChanged()
   })
 
   const createCase = useMutation(async () => {
@@ -88,7 +93,13 @@ export default function AlertDetailPage() {
   })
 
   if (error) {
-    return <ErrorState error={error} onRetry={reload} title="Alert not found" />
+    return (
+      <ErrorState
+        error={error}
+        onRetry={reload}
+        title={error.status === 404 ? 'Alert not found' : 'Could not load this alert'}
+      />
+    )
   }
 
   return (

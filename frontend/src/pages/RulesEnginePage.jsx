@@ -162,7 +162,10 @@ export default function RulesEnginePage() {
   const [layer, setLayer] = useState('')
   const [search, setSearch] = useState('')
 
-  const { data, error, loading, reload } = useApi(() => api.rules({ page_size: 200 }), [])
+  const { data, error, loading, reload } = useApi(
+    (signal) => api.rules({ page_size: 200 }, signal),
+    [],
+  )
   const rules = data?.items ?? data ?? []
 
   const filtered = useMemo(() => {
