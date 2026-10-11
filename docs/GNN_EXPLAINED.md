@@ -196,30 +196,8 @@ platform's INR/UPI demonstration data differs in currency and payment rails,
 so measured accuracy refers to AMLworld only. Explanations remove a transfer from
 message passing but not from the account's window statistics.
 
-## 7. Explaining it in an interview
 
-**30-second version**
-> "The reactive layer looks for laundering networks after payments settle. For
-> each account I build a 7-day neighbourhood graph and score it with GraphSAGE,
-> a GNN that learns from neighbours and works on new accounts. I trained it on
-> IBM's public AMLworld benchmark with a time-based split, compared it fairly
-> with gradient boosting and logistic regression, ran an ablation of three
-> GraphSAGE versions, and every flag comes with the transfers that caused it."
-
-**Likely questions**
-
-| Question | Answer |
-|---|---|
-| Why a GNN? | Laundering is about relationships between accounts; a GNN learns from the neighbourhood. I also measured whether it beats normal ML instead of assuming it does. |
-| Why GraphSAGE? | Simple (gather, combine, repeat), well known, and inductive - it scores accounts it never saw in training. |
-| Why not your own data? | Real labelled bank data is not public anywhere (privacy law, confidential suspicious-transaction reports). Self-made test data only checks your own assumptions. AMLworld is the standard public benchmark. |
-| Your app is Indian / UPI and AMLworld is not? | A stated limitation. Features are currency-neutral (converted to one currency; UPI/IMPS and NEFT/ACH grouped as payment rails). The accuracy numbers are from AMLworld; the app demonstrates the mechanism. With real Indian data I would fine-tune. |
-| Why not accuracy? | 99.7% of accounts are clean - a model that flags nobody scores 99.7%. Precision, recall and PR-AUC show what matters. |
-| How did you avoid cheating? | Time-based split; the laundering tail removed; thresholds and model choice on validation only; several seeds reported as mean ± std. |
-| How does it explain a flag? | Occlusion: remove each nearby transfer, re-score, rank by the score drop; and I tested that the explanations are faithful. |
-| What would production need? | An event queue for settled payments, streaming updates to the UI, model monitoring and retraining on confirmed cases. Out of scope for this project. |
-
-## 8. Five-minute demo script
+## 7. Five-minute demo script
 
 1. **Dashboard** (30 s) - three layers: integrity, proactive, reactive.
 2. **Security Gateway** (60 s) - tamper with an amount → blocked; normal payment → allowed.
@@ -231,7 +209,7 @@ message passing but not from the account's window statistics.
 5. **Results** (60 s) - one table from `GNN_RESULTS.md`: GNN versions vs
    gradient boosting, and the explanation-fidelity check.
 
-## 9. Commands
+## 8. Commands
 
 ```bash
 cd backend
