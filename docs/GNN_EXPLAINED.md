@@ -1,4 +1,3 @@
-# The reactive GNN, explained simply
 
 A guide to the graph neural network part of the project: what it does, how it
 was built step by step (R1–R6), and how to explain it in an interview or viva.
@@ -157,47 +156,8 @@ true laundering account at ~25% recall. That is far better than chance (0.003)
 and than the baselines, and in line with how hard AMLworld is - but it is a
 prioritisation aid for analysts, not an automatic verdict.
 
-## 6. Paper text (ready to adapt)
 
-**Dataset.** Because labelled real-world transaction data is not publicly
-available - privacy regulation and the confidentiality of suspicious-transaction
-reports prevent it - we evaluate the network layer on IBM AMLworld HI-Small
-(Altman et al., 2023), a widely used simulated benchmark of 5.08 million
-transfers between 515,088 accounts. After 10 September 2022 the simulator emits
-only 1,108 transfers, 59% of them laundering; we exclude these days because a
-time-ordered test split containing them would reward mere activity detection.
-
-**Protocol.** Transfers are split by time (60/20/20 by count, aligned to UTC
-days). For each account active on a day we build its 7-day, 3-hop neighbourhood
-(at most 300 accounts) and predict whether it took part in a laundering transfer
-that day. All positive accounts are kept; negatives are sampled (1% train, 2%
-validation/test) and re-weighted, so precision and PR-AUC estimate performance on
-all active accounts (base rate 0.33%). Thresholds and model selection use the
-validation split only; each model is trained with 5 seeds.
-
-**Models.** We compare gradient boosting and logistic regression on the
-account's features and on hand-crafted neighbour and transfer aggregates with
-three GraphSAGE variants: (A) the standard undirected mean aggregator,
-(B) separate inbound/outbound aggregation weighted by amount, and (C) B with
-messages computed from both the neighbour state and the transfer's features
-(amount, relay latency, payment rail, cross-institution flag).
-
-**Results.** Direction-aware aggregation improves on the undirected model
-(PR-AUC 0.042 vs 0.029), but without transfer features both GraphSAGE variants
-trail gradient boosting on hand-crafted neighbourhood features (0.137). The
-edge-aware variant reaches 0.183 ± 0.024 (precision 0.224, recall 0.252),
-outperforming all baselines and recalling more of the cycle, fan-out and
-scatter-gather typologies. Occlusion explanations are faithful: deleting the
-three highest-attributed transfers lowers a flagged account's score by 0.45 on
-average versus 0.04 for three random neighbouring transfers.
-
-**Limitations.** AMLworld is simulated and has no customer profile data; the
-platform's INR/UPI demonstration data differs in currency and payment rails,
-so measured accuracy refers to AMLworld only. Explanations remove a transfer from
-message passing but not from the account's window statistics.
-
-
-## 7. Five-minute demo script
+## 6. Five-minute demo script
 
 1. **Dashboard** (30 s) - three layers: integrity, proactive, reactive.
 2. **Security Gateway** (60 s) - tamper with an amount → blocked; normal payment → allowed.
@@ -209,7 +169,7 @@ message passing but not from the account's window statistics.
 5. **Results** (60 s) - one table from `GNN_RESULTS.md`: GNN versions vs
    gradient boosting, and the explanation-fidelity check.
 
-## 8. Commands
+## 7. Commands
 
 ```bash
 cd backend
